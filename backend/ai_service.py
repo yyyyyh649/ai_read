@@ -1,12 +1,12 @@
 """
 AI 服务模块 — 封装 OpenAI 兼容 API 调用
-支持 Hermes step3.7 / Agnes 等任何兼容 API
+支持运行时动态配置（通过 Web UI 设置）
 """
 
 import os
 import httpx
 from typing import Optional, AsyncGenerator
-from .prompts import (
+from prompts import (
     PROMPT_QUICK_SCAN,
     PROMPT_SUMMARY,
     PROMPT_MINDMAP,
@@ -17,16 +17,50 @@ from .prompts import (
 
 
 class AIService:
-    """OpenAI 兼容 API 服务"""
+    """OpenAI 兼容 API 服务，支持运行时动态更新配置"""
 
     def __init__(self):
-        self.base_url = os.getenv("AI_API_BASE_URL", "http://localhost:8000/v1")
-        self.api_key = os.getenv("AI_API_KEY", "")
-        self.model = os.getenv("AI_MODEL_NAME", "step-3.7")
-        self.model_fast = os.getenv("AI_MODEL_NAME_FAST", "agnes")
+        self._config = {
+            "base_url": os.getenv("AI_API_BASE_URL", "").rstrip("/"),
+            "api_key": os.getenv("AI_API_KEY", ""),
+            "model": os.getenv("AI_MODEL_NAME", "step-3.7"),
+            "model_fast": os.getenv("AI_MODEL_NAME_FAST", "agnes"),
+        }
 
-        # 确保 base_url 不以 / 结尾
-        self.base_url = self.base_url.rstrip("/")
+    @property
+    def base_url(self):
+        return self._config["base_url"]
+
+    @property
+    def api_key(self):
+        return self._config["api_key"]
+
+    @property
+    def model(self):
+        return self._config["model"]
+
+    @property
+    def model_fast(self):
+        return self._config["model_fast"]
+
+    def update_config(self, base_url=None, api_key=None, model=None, model_fast=None):
+        """从 Web UI 更新配置（只更新传入的项）"""
+        if base_url is not None:
+            self._config["base_url"] = base_url.rstrip("/")
+        if api_key is not None:
+            self._config["api_key"] = api_key
+        if model is not None:
+            self._config["model"] = model
+        if model_fast is not None:
+            self._config["model_fast"] = model_fast
+
+    def get_config(self):
+        """获取当前配置（隐藏 api_key 大部分字符）"""
+        cfg = dict(self._config)
+        key = cfg["api_key"]
+        if key and len(key) > 8:
+            cfg["api_key"] = key[:4] + "***" + key[-4:]
+        return cfg
 
     def _get_headers(self) -> dict:
         return {
@@ -118,39 +152,31 @@ class AIService:
     # ─── 各功能方法 ───
 
     async def quick_scan(self, paper_text: str, stream: bool = False):
-        """论文速览"""
         prompt = PROMPT_QUICK_SCAN.format(paper_text=paper_text[:30000])
         return await self._respond(prompt, stream=stream, max_tokens=2048)
 
     async def summary(self, paper_text: str, stream: bool = False):
-        """深度总结"""
         prompt = PROMPT_SUMMARY.format(paper_text=paper_text[:40000])
         return await self._respond(prompt, stream=stream, max_tokens=4096)
 
     async def mindmap(self, paper_text: str, stream: bool = False):
-        """思维导图"""
         prompt = PROMPT_MINDMAP.format(paper_text=paper_text[:30000])
         return await self._respond(prompt, stream=stream, max_tokens=2048)
 
     async def experiments(self, paper_text: str, stream: bool = False):
-        """实验汇总"""
         prompt = PROMPT_EXPERIMENTS.format(paper_text=paper_text[:40000])
         return await self._respond(prompt, stream=stream, max_tokens=4096)
 
     async def translate_snippet(self, text: str) -> str:
-        """划词翻译"""
         prompt = PROMPT_TRANSLATE_SNIPPET.format(text=text)
         return await self.chat(prompt, temperature=0.1, max_tokens=2048, use_fast=True)
 
     async def translate_full(self, paper_text: str, stream: bool = False):
-        """全文翻译（可能分批）"""
-        # 如果文本太长，分批翻译
         chunk_size = 20000
         if len(paper_text) <= chunk_size:
             prompt = PROMPT_FULL_TRANSLATION.format(paper_text=paper_text)
             return await self._respond(prompt, stream=stream, max_tokens=8192, use_fast=True)
         else:
-            # 分批处理
             chunks = [
                 paper_text[i:i + chunk_size]
                 for i in range(0, len(paper_text), chunk_size)
@@ -163,14 +189,7 @@ class AIService:
                     results.append(result)
             return "\n\n---\n\n".join(results)
 
-    async def _respond(
-        self,
-        prompt: str,
-        stream: bool = False,
-        max_tokens: int = 4096,
-        use_fast: bool = False,
-    ):
-        """统一响应处理"""
+    async def _respond(self, prompt, stream=False, max_tokens=4096, use_fast=False):
         if stream:
             return self.chat_stream(prompt, max_tokens=max_tokens, use_fast=use_fast)
         else:

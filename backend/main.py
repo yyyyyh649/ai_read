@@ -10,7 +10,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(dotenv_path="../.env")
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
@@ -20,6 +20,15 @@ import json
 
 from pdf_parser import PaperParser
 from ai_service import ai_service
+
+from pydantic import BaseModel, Field
+from typing import Optional
+
+class ConfigUpdate(BaseModel):
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+    model_fast: Optional[str] = None
 
 # ─── 配置 ───
 UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
@@ -254,6 +263,23 @@ async def translate_full(file_id: str, stream: bool = Query(default=True)):
 
 
 # ─── 静态文件（前端） ───
+
+# ─── API 配置（Web UI 动态设置） ───
+
+@app.get("/api/config")
+def get_config():
+    return ai_service.get_config()
+
+@app.post("/api/config")
+def update_config(config: ConfigUpdate):
+    ai_service.update_config(
+        base_url=config.base_url,
+        api_key=config.api_key,
+        model=config.model,
+        model_fast=config.model_fast,
+    )
+    return ai_service.get_config()
+
 frontend_dir = Path(__file__).parent.parent / "frontend"
 if frontend_dir.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
