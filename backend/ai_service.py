@@ -93,7 +93,7 @@ class AIService:
     def _get_headers(self, use_fast=False):
         cfg = self._resolve(use_fast)
         return {
-            "Authorization": f"Bearer {cfg[api_key]}",
+            "Authorization": f'Bearer {cfg["api_key"]}',
             "Content-Type": "application/json",
         }
 
@@ -111,7 +111,7 @@ class AIService:
         payload = self._build_payload(prompt, stream=False, temperature=temperature, max_tokens=max_tokens, use_fast=use_fast)
         cfg = self._resolve(use_fast)
         async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(f"{cfg[base_url]}/chat/completions", headers=self._get_headers(use_fast), json=payload)
+            resp = await client.post(f'{cfg["base_url"]}/chat/completions', headers=self._get_headers(use_fast), json=payload)
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"]
@@ -120,8 +120,7 @@ class AIService:
         payload = self._build_payload(prompt, stream=True, temperature=temperature, max_tokens=max_tokens, use_fast=use_fast)
         cfg = self._resolve(use_fast)
         async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream("POST", f"{cfg[base_url]}/chat/completions", headers=self._get_headers(use_fast), json=payload) as resp:
-                resp.raise_for_status()
+            async with client.stream("POST", f'{cfg["base_url"]}/chat/completions', headers=self._get_headers(use_fast), json=payload) as resp:
                 async for line in resp.aiter_lines():
                     if line.startswith("data: "):
                         ds = line[6:]
