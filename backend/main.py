@@ -28,7 +28,9 @@ class ConfigUpdate(BaseModel):
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     model: Optional[str] = None
-    model_fast: Optional[str] = None
+    fast_base_url: Optional[str] = None
+    fast_api_key: Optional[str] = None
+    fast_model: Optional[str] = None
 
 # ─── 配置 ───
 UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
@@ -262,21 +264,49 @@ async def translate_full(file_id: str, stream: bool = Query(default=True)):
         return {"result": result}
 
 
+# ─── API 配置（Web UI 动态设置） ───
+class ModelFetchRequest(BaseModel):
+    base_url: str
+    api_key: str
+
+@app.post("/api/models")
+async def fetch_models(req: ModelFetchRequest):
+    """检测指定 API 的可用模型列表"""
+    import httpx as ht
+    url = req.base_url.rstrip("/") + "/models"
+    try:
+        async with ht.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {req.api_key}"})
+            resp.raise_for_status()
+            data = resp.json()
+            models = []
+            for m in data.get("data", []):
+                models.append({"id": m.get("id", ""), "owned_by": m.get("owned_by", "")})
+            models.sort(key=lambda x: x["id"])
+            return {"models": models}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch models: {str(e)}")
+
+
 # ─── 静态文件（前端） ───
 
 # ─── API 配置（Web UI 动态设置） ───
 
 @app.get("/api/config")
+@app.get("/api/config")
 def get_config():
     return ai_service.get_config()
 
+@app.post("/api/config")
 @app.post("/api/config")
 def update_config(config: ConfigUpdate):
     ai_service.update_config(
         base_url=config.base_url,
         api_key=config.api_key,
         model=config.model,
-        model_fast=config.model_fast,
+        fast_base_url=config.fast_base_url,
+        fast_api_key=config.fast_api_key,
+        fast_model=config.fast_model,
     )
     return ai_service.get_config()
 

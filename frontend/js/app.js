@@ -1,7 +1,7 @@
 /**
  * AI Paper Reader — Frontend Application
  * 论文 AI 阅读助手前端逻辑
- * 支持 Web UI 动态配置 API 模型
+ * 支持 Web UI 动态配置 API 模型（主力/辅助各自独立）
  */
 
 // ─── Global State ───
@@ -50,8 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function toggleModelSettings() {
     const panel = document.getElementById('settingsPanel');
     const overlay = document.getElementById('settingsOverlay');
-    const isOpen = !panel.classList.contains('hidden');
-    if (isOpen) {
+    if (!panel.classList.contains('hidden')) {
         panel.classList.add('hidden');
         overlay.classList.add('hidden');
     } else {
@@ -72,39 +71,38 @@ async function loadModelConfig() {
         if (!resp.ok) return;
         const cfg = await resp.json();
         updateModelBadge(cfg.model || '--');
-        // Store in localStorage as cache for form pre-fill
         localStorage.setItem('ai_read_config', JSON.stringify(cfg));
     } catch (e) {
-        // Backend might not be ready yet
         setTimeout(loadModelConfig, 2000);
     }
 }
 
 function loadConfigIntoForm() {
-    // Load from localStorage cache
     const cached = localStorage.getItem('ai_read_config');
     let cfg = {};
-    if (cached) {
-        try { cfg = JSON.parse(cached); } catch (e) {}
-    }
+    if (cached) { try { cfg = JSON.parse(cached); } catch (e) {} }
     document.getElementById('cfgBaseUrl').value = cfg.base_url || '';
     document.getElementById('cfgApiKey').value = cfg.api_key || '';
     document.getElementById('cfgModel').value = cfg.model || '';
-    document.getElementById('cfgModelFast').value = cfg.model_fast || '';
+    document.getElementById('cfgFastBaseUrl').value = cfg.fast_base_url || '';
+    document.getElementById('cfgFastApiKey').value = cfg.fast_api_key || '';
+    document.getElementById('cfgFastModel').value = cfg.fast_model || '';
 }
 
 async function saveModelConfig() {
     const base_url = document.getElementById('cfgBaseUrl').value.trim();
     const api_key = document.getElementById('cfgApiKey').value.trim();
     const model = document.getElementById('cfgModel').value.trim();
-    const model_fast = document.getElementById('cfgModelFast').value.trim();
+    const fast_base_url = document.getElementById('cfgFastBaseUrl').value.trim();
+    const fast_api_key = document.getElementById('cfgFastApiKey').value.trim();
+    const fast_model = document.getElementById('cfgFastModel').value.trim();
     const statusEl = document.getElementById('settingsStatus');
 
     try {
         const resp = await fetch('/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base_url, api_key, model, model_fast }),
+            body: JSON.stringify({ base_url, api_key, model, fast_base_url, fast_api_key, fast_model }),
         });
         if (!resp.ok) throw new Error(await resp.text());
         const cfg = await resp.json();
@@ -118,6 +116,60 @@ async function saveModelConfig() {
         statusEl.style.color = '#dc2626';
     }
 }
+
+async function detectModels(type) {
+    const prefix = type === 'fast' ? 'cfgFast' : 'cfg';
+    const baseUrl = document.getElementById(prefix + 'BaseUrl').value.trim();
+    const apiKey = document.getElementById(prefix + 'ApiKey').value.trim();
+    const btn = document.getElementById(type === 'fast' ? 'btnDetectFast' : 'btnDetectMain');
+    const dropdown = document.getElementById(type === 'fast' ? 'modelsDropdownFast' : 'modelsDropdownMain');
+
+    if (!baseUrl) { alert('请先填写 API Base URL'); return; }
+    if (!apiKey) { alert('请先填写 API Key'); return; }
+
+    btn.disabled = true;
+    btn.textContent = '⏳ 检测中...';
+    dropdown.classList.add('hidden');
+
+    try {
+        const resp = await fetch('/api/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base_url: baseUrl, api_key: apiKey }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        if (data.models.length === 0) {
+            dropdown.innerHTML = '<div class="models-empty">未找到可用模型</div>';
+        } else {
+            dropdown.innerHTML = data.models.map(function(m) {
+                return '<div class="model-item" onclick="selectModel(\'' + type + '\', \'' + m.id.replace(/'/g, "\\'") + '\')">' +
+                    '<span class="model-id">' + m.id + '</span>' +
+                    '<span class="model-owner">' + (m.owned_by || '') + '</span>' +
+                    '</div>';
+            }).join('');
+        }
+        dropdown.classList.remove('hidden');
+    } catch (e) {
+        alert('检测失败：' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 检测';
+    }
+}
+
+function selectModel(type, modelId) {
+    const inputId = type === 'fast' ? 'cfgFastModel' : 'cfgModel';
+    const dropdownId = type === 'fast' ? 'modelsDropdownFast' : 'modelsDropdownMain';
+    document.getElementById(inputId).value = modelId;
+    document.getElementById(dropdownId).classList.add('hidden');
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.input-with-btn')) {
+        document.querySelectorAll('.models-dropdown').forEach(function(d) { d.classList.add('hidden'); });
+    }
+});
 
 function updateModelBadge(modelName) {
     if (dom.modelBadge) {
@@ -133,17 +185,13 @@ function setupUpload() {
         dom.fileInput.click();
     });
     dom.fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            uploadFile(e.target.files[0]);
-        }
+        if (e.target.files.length > 0) uploadFile(e.target.files[0]);
     });
     zone.addEventListener('dragover', (e) => {
         e.preventDefault();
         zone.classList.add('drag-over');
     });
-    zone.addEventListener('dragleave', () => {
-        zone.classList.remove('drag-over');
-    });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
     zone.addEventListener('drop', (e) => {
         e.preventDefault();
         zone.classList.remove('drag-over');
@@ -157,21 +205,14 @@ function setupUpload() {
         for (const item of items) {
             if (item.type === 'application/pdf' || (item.kind === 'file' && item.type === '')) {
                 const file = item.getAsFile();
-                if (file) {
-                    e.preventDefault();
-                    uploadFile(file);
-                    return;
-                }
+                if (file) { e.preventDefault(); uploadFile(file); return; }
             }
         }
     });
 }
 
 async function uploadFile(file) {
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-        alert('请上传 PDF 文件！');
-        return;
-    }
+    if (!file.name.toLowerCase().endsWith('.pdf')) { alert('请上传 PDF 文件！'); return; }
     dom.statusText.textContent = '正在上传并解析...';
     dom.btnRun.disabled = true;
     const formData = new FormData();
@@ -207,11 +248,8 @@ function setupTabs() {
         tab.classList.add('active');
         state.currentTab = tab.dataset.tab;
         const labels = {
-            'quick-scan': '▶ 开始速览',
-            'summary': '▶ 生成总结',
-            'mindmap': '▶ 生成思维导图',
-            'experiments': '▶ 汇总实验',
-            'translate': '▶ 全文翻译',
+            'quick-scan': '▶ 开始速览', 'summary': '▶ 生成总结',
+            'mindmap': '▶ 生成思维导图', 'experiments': '▶ 汇总实验', 'translate': '▶ 全文翻译',
         };
         dom.btnRun.textContent = labels[state.currentTab] || '▶ 开始分析';
         resetResult();
@@ -234,17 +272,11 @@ function switchTab(tabName) {
 
 // ─── Analysis ───
 async function runAnalysis() {
-    if (!state.fileId) {
-        alert('请先上传论文 PDF');
-        return;
-    }
+    if (!state.fileId) { alert('请先上传论文 PDF'); return; }
     if (state.isStreaming) return;
     const endpoints = {
-        'quick-scan': 'quick-scan',
-        'summary': 'summary',
-        'mindmap': 'mindmap',
-        'experiments': 'experiments',
-        'translate': 'translate-full',
+        'quick-scan': 'quick-scan', 'summary': 'summary', 'mindmap': 'mindmap',
+        'experiments': 'experiments', 'translate': 'translate-full',
     };
     const endpoint = endpoints[state.currentTab];
     if (!endpoint) return;
@@ -283,10 +315,7 @@ async function runAnalysis() {
                     if (dataStr === '[DONE]') continue;
                     try {
                         const data = JSON.parse(dataStr);
-                        if (data.content) {
-                            fullText += data.content;
-                            updateResult(fullText);
-                        }
+                        if (data.content) { fullText += data.content; updateResult(fullText); }
                     } catch (e) {}
                 }
             }
@@ -307,11 +336,7 @@ async function runAnalysis() {
     }
 }
 
-function stopAnalysis() {
-    if (state.abortController) {
-        state.abortController.abort();
-    }
-}
+function stopAnalysis() { if (state.abortController) state.abortController.abort(); }
 
 function updateResult(text) {
     if (state.currentTab === 'mindmap') {
@@ -321,9 +346,7 @@ function updateResult(text) {
         dom.resultContent.innerHTML = html + '<span class="stream-cursor"></span>';
         dom.resultContent.scrollTop = dom.resultContent.scrollHeight;
         dom.resultContent.querySelectorAll('pre code').forEach(block => {
-            if (window.hljs) {
-                window.hljs.highlightElement(block);
-            }
+            if (window.hljs) window.hljs.highlightElement(block);
         });
     }
 }
@@ -349,14 +372,11 @@ function renderMindmap(markdownText) {
             Markmap.create(dom.mindmapSvg, null, root);
         } else {
             dom.mindmapContainer.innerHTML = '<div class="markmap" style="width:100%;height:600px;">\n' + markdownText + '\n</div>';
-            if (window.markmap) {
-                window.markmap.autoLoader.renderAll();
-            }
+            if (window.markmap) window.markmap.autoLoader.renderAll();
         }
         dom.resultContent.classList.remove('hidden');
         dom.resultContent.innerHTML = '<h3>📋 思维导图大纲</h3><pre><code class="language-markdown">' + escapeHtml(markdownText) + '</code></pre>';
     } catch (e) {
-        console.error('Mindmap render error:', e);
         dom.resultContent.classList.remove('hidden');
         dom.resultContent.innerHTML = '<h3>📋 思维导图大纲</h3><pre><code class="language-markdown">' + escapeHtml(markdownText) + '</code></pre>';
     }
@@ -382,17 +402,12 @@ function setupTextSelection() {
         dom.translatePopup.classList.remove('hidden');
         dom.translatePopupBody.innerHTML = '<p class="translate-loading"><span class="spinner"></span> 翻译中...</p>';
         const popup = dom.translatePopup.querySelector('.translate-popup-content');
-        const top = Math.min(rect.bottom + 10, window.innerHeight - 300);
-        const left = Math.max(10, Math.min(rect.left, window.innerWidth - 500));
         popup.style.position = 'fixed';
-        popup.style.top = top + 'px';
-        popup.style.left = left + 'px';
+        popup.style.top = Math.min(rect.bottom + 10, window.innerHeight - 300) + 'px';
+        popup.style.left = Math.max(10, Math.min(rect.left, window.innerWidth - 500)) + 'px';
         popup.style.maxWidth = '480px';
         try {
-            const resp = await fetch(
-                '/api/paper/' + state.fileId + '/translate-snippet?text=' + encodeURIComponent(text),
-                { method: 'POST' }
-            );
+            const resp = await fetch('/api/paper/' + state.fileId + '/translate-snippet?text=' + encodeURIComponent(text), { method: 'POST' });
             if (!resp.ok) throw new Error(await resp.text());
             const data = await resp.json();
             dom.translatePopupBody.innerHTML = '<div class="translate-source">' + escapeHtml(text) + '</div><div class="translate-target">' + escapeHtml(data.result) + '</div>';
@@ -402,18 +417,9 @@ function setupTextSelection() {
     });
 }
 
-function closeTranslatePopup() {
-    dom.translatePopup.classList.add('hidden');
-}
-
+function closeTranslatePopup() { dom.translatePopup.classList.add('hidden'); }
 document.addEventListener('mousedown', (e) => {
     if (dom.translatePopup.classList.contains('hidden')) return;
-    const popupContent = dom.translatePopup.querySelector('.translate-popup-content');
-    if (popupContent && !popupContent.contains(e.target)) {
-        closeTranslatePopup();
-    }
+    if (!dom.translatePopup.querySelector('.translate-popup-content').contains(e.target)) closeTranslatePopup();
 });
-
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeTranslatePopup();
-});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTranslatePopup(); });

@@ -1,6 +1,6 @@
 """
 AI 服务模块 — 封装 OpenAI 兼容 API 调用
-支持运行时动态配置（通过 Web UI 设置）
+支持运行时动态配置主力模型和辅助模型，各自独立 API 参数
 """
 
 import os
@@ -17,184 +17,164 @@ from prompts import (
 
 
 class AIService:
-    """OpenAI 兼容 API 服务，支持运行时动态更新配置"""
+    """OpenAI 兼容 API 服务，主力/辅助模型各自独立配置"""
 
     def __init__(self):
-        self._config = {
+        # 主力模型配置
+        self._main = {
             "base_url": os.getenv("AI_API_BASE_URL", "").rstrip("/"),
             "api_key": os.getenv("AI_API_KEY", ""),
-            "model": os.getenv("AI_MODEL_NAME", "step-3.7"),
-            "model_fast": os.getenv("AI_MODEL_NAME_FAST", "agnes"),
+            "model": os.getenv("AI_MODEL_NAME", ""),
         }
+        # 辅助模型配置（独立，不填则回退到主力）
+        self._fast = {
+            "base_url": "",
+            "api_key": "",
+            "model": os.getenv("AI_MODEL_NAME_FAST", ""),
+        }
+
+    def _resolve(self, use_fast: bool = False) -> dict:
+        """解析实际使用的配置，fast 有值用 fast，否则回退 main"""
+        if use_fast:
+            return {
+                "base_url": self._fast["base_url"] or self._main["base_url"],
+                "api_key": self._fast["api_key"] or self._main["api_key"],
+                "model": self._fast["model"] or self._main["model"],
+            }
+        return dict(self._main)
 
     @property
     def base_url(self):
-        return self._config["base_url"]
+        return self._main["base_url"]
 
     @property
     def api_key(self):
-        return self._config["api_key"]
+        return self._main["api_key"]
 
     @property
     def model(self):
-        return self._config["model"]
+        return self._main["model"]
 
     @property
     def model_fast(self):
-        return self._config["model_fast"]
+        return self._fast["model"] or self._main["model"]
 
-    def update_config(self, base_url=None, api_key=None, model=None, model_fast=None):
+    def update_config(self, base_url=None, api_key=None, model=None,
+                      fast_base_url=None, fast_api_key=None, fast_model=None):
         """从 Web UI 更新配置（只更新传入的项）"""
         if base_url is not None:
-            self._config["base_url"] = base_url.rstrip("/")
+            self._main["base_url"] = base_url.rstrip("/")
         if api_key is not None:
-            self._config["api_key"] = api_key
+            self._main["api_key"] = api_key
         if model is not None:
-            self._config["model"] = model
-        if model_fast is not None:
-            self._config["model_fast"] = model_fast
+            self._main["model"] = model
+        if fast_base_url is not None:
+            self._fast["base_url"] = fast_base_url.rstrip("/") if fast_base_url else ""
+        if fast_api_key is not None:
+            self._fast["api_key"] = fast_api_key
+        if fast_model is not None:
+            self._fast["model"] = fast_model
 
     def get_config(self):
-        """获取当前配置（隐藏 api_key 大部分字符）"""
-        cfg = dict(self._config)
-        key = cfg["api_key"]
-        if key and len(key) > 8:
-            cfg["api_key"] = key[:4] + "***" + key[-4:]
-        return cfg
-
-    def _get_headers(self) -> dict:
+        """获取当前配置（脱敏 api_key）"""
+        def mask(key):
+            if key and len(key) > 8:
+                return key[:4] + "***" + key[-4:]
+            return key
         return {
-            "Authorization": f"Bearer {self.api_key}",
+            "base_url": self._main["base_url"],
+            "api_key": mask(self._main["api_key"]),
+            "model": self._main["model"],
+            "fast_base_url": self._fast["base_url"],
+            "fast_api_key": mask(self._fast["api_key"]),
+            "fast_model": self._fast["model"],
+        }
+
+    def _get_headers(self, use_fast=False):
+        cfg = self._resolve(use_fast)
+        return {
+            "Authorization": f"Bearer {cfg[api_key]}",
             "Content-Type": "application/json",
         }
 
-    def _build_payload(
-        self,
-        prompt: str,
-        stream: bool = False,
-        temperature: float = 0.3,
-        max_tokens: int = 4096,
-        use_fast: bool = False,
-    ) -> dict:
+    def _build_payload(self, prompt, stream=False, temperature=0.3, max_tokens=4096, use_fast=False):
+        cfg = self._resolve(use_fast)
         return {
-            "model": self.model_fast if use_fast else self.model,
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
+            "model": cfg["model"],
+            "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": stream,
         }
 
-    async def chat(
-        self,
-        prompt: str,
-        temperature: float = 0.3,
-        max_tokens: int = 4096,
-        use_fast: bool = False,
-    ) -> str:
-        """普通对话（非流式）"""
-        payload = self._build_payload(
-            prompt, stream=False,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            use_fast=use_fast,
-        )
-
+    async def chat(self, prompt, temperature=0.3, max_tokens=4096, use_fast=False):
+        payload = self._build_payload(prompt, stream=False, temperature=temperature, max_tokens=max_tokens, use_fast=use_fast)
+        cfg = self._resolve(use_fast)
         async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=self._get_headers(),
-                json=payload,
-            )
+            resp = await client.post(f"{cfg[base_url]}/chat/completions", headers=self._get_headers(use_fast), json=payload)
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"]
 
-    async def chat_stream(
-        self,
-        prompt: str,
-        temperature: float = 0.3,
-        max_tokens: int = 4096,
-        use_fast: bool = False,
-    ) -> AsyncGenerator[str, None]:
-        """流式对话 — 逐 token 返回"""
-        payload = self._build_payload(
-            prompt, stream=True,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            use_fast=use_fast,
-        )
-
+    async def chat_stream(self, prompt, temperature=0.3, max_tokens=4096, use_fast=False):
+        payload = self._build_payload(prompt, stream=True, temperature=temperature, max_tokens=max_tokens, use_fast=use_fast)
+        cfg = self._resolve(use_fast)
         async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/chat/completions",
-                headers=self._get_headers(),
-                json=payload,
-            ) as resp:
+            async with client.stream("POST", f"{cfg[base_url]}/chat/completions", headers=self._get_headers(use_fast), json=payload) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if line.startswith("data: "):
-                        data_str = line[6:]
-                        if data_str.strip() == "[DONE]":
+                        ds = line[6:]
+                        if ds.strip() == "[DONE]":
                             break
                         import json
                         try:
-                            chunk = json.loads(data_str)
-                            delta = chunk["choices"][0].get("delta", {})
-                            content = delta.get("content", "")
+                            chunk = json.loads(ds)
+                            content = chunk["choices"][0].get("delta", {}).get("content", "")
                             if content:
                                 yield content
                         except (json.JSONDecodeError, KeyError, IndexError):
                             continue
 
     # ─── 各功能方法 ───
-
-    async def quick_scan(self, paper_text: str, stream: bool = False):
+    async def quick_scan(self, paper_text, stream=False):
         prompt = PROMPT_QUICK_SCAN.format(paper_text=paper_text[:30000])
         return await self._respond(prompt, stream=stream, max_tokens=2048)
 
-    async def summary(self, paper_text: str, stream: bool = False):
+    async def summary(self, paper_text, stream=False):
         prompt = PROMPT_SUMMARY.format(paper_text=paper_text[:40000])
         return await self._respond(prompt, stream=stream, max_tokens=4096)
 
-    async def mindmap(self, paper_text: str, stream: bool = False):
+    async def mindmap(self, paper_text, stream=False):
         prompt = PROMPT_MINDMAP.format(paper_text=paper_text[:30000])
         return await self._respond(prompt, stream=stream, max_tokens=2048)
 
-    async def experiments(self, paper_text: str, stream: bool = False):
+    async def experiments(self, paper_text, stream=False):
         prompt = PROMPT_EXPERIMENTS.format(paper_text=paper_text[:40000])
         return await self._respond(prompt, stream=stream, max_tokens=4096)
 
-    async def translate_snippet(self, text: str) -> str:
+    async def translate_snippet(self, text):
         prompt = PROMPT_TRANSLATE_SNIPPET.format(text=text)
         return await self.chat(prompt, temperature=0.1, max_tokens=2048, use_fast=True)
 
-    async def translate_full(self, paper_text: str, stream: bool = False):
+    async def translate_full(self, paper_text, stream=False):
         chunk_size = 20000
         if len(paper_text) <= chunk_size:
             prompt = PROMPT_FULL_TRANSLATION.format(paper_text=paper_text)
             return await self._respond(prompt, stream=stream, max_tokens=8192, use_fast=True)
-        else:
-            chunks = [
-                paper_text[i:i + chunk_size]
-                for i in range(0, len(paper_text), chunk_size)
-            ]
-            results = []
-            for i, chunk in enumerate(chunks):
-                prompt = PROMPT_FULL_TRANSLATION.format(paper_text=chunk)
-                result = await self._respond(prompt, stream=False, max_tokens=8192, use_fast=True)
-                if isinstance(result, str):
-                    results.append(result)
-            return "\n\n---\n\n".join(results)
+        chunks = [paper_text[i:i+chunk_size] for i in range(0, len(paper_text), chunk_size)]
+        results = []
+        for chunk in chunks:
+            prompt = PROMPT_FULL_TRANSLATION.format(paper_text=chunk)
+            result = await self._respond(prompt, stream=False, max_tokens=8192, use_fast=True)
+            if isinstance(result, str):
+                results.append(result)
+        return "\n\n---\n\n".join(results)
 
     async def _respond(self, prompt, stream=False, max_tokens=4096, use_fast=False):
         if stream:
             return self.chat_stream(prompt, max_tokens=max_tokens, use_fast=use_fast)
-        else:
-            return await self.chat(prompt, max_tokens=max_tokens, use_fast=use_fast)
+        return await self.chat(prompt, max_tokens=max_tokens, use_fast=use_fast)
 
 
-# 单例
 ai_service = AIService()

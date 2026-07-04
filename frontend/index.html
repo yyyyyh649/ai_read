@@ -113,26 +113,50 @@
             <button class="btn-close" onclick="closeModelSettings()">×</button>
         </div>
         <div class="settings-body">
-            <div class="form-group">
-                <label>API Base URL</label>
-                <input type="text" id="cfgBaseUrl" placeholder="https://api.openai.com/v1">
-                <span class="form-hint">OpenAI 兼容 API 地址（以 /v1 结尾）</span>
+            <!-- 主力模型 -->
+            <div class="config-section">
+                <h3 class="config-section-title">🔵 主力模型</h3>
+                <p class="config-section-desc">用于速览、总结、思维导图、实验汇总</p>
+                <div class="form-group">
+                    <label>API Base URL</label>
+                    <input type="text" id="cfgBaseUrl" placeholder="https://api.openai.com/v1">
+                </div>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="password" id="cfgApiKey" placeholder="sk-...">
+                </div>
+                <div class="form-group">
+                    <label>模型名称</label>
+                    <div class="input-with-btn">
+                        <input type="text" id="cfgModel" placeholder="gpt-4o">
+                        <button class="btn btn-sm btn-detect" onclick="detectModels('main')" id="btnDetectMain">🔍 检测</button>
+                    </div>
+                    <div class="models-dropdown hidden" id="modelsDropdownMain"></div>
+                </div>
             </div>
-            <div class="form-group">
-                <label>API Key</label>
-                <input type="password" id="cfgApiKey" placeholder="sk-...">
-                <span class="form-hint">API 密钥，仅保存在服务器内存中</span>
+
+            <!-- 辅助模型（可选） -->
+            <div class="config-section">
+                <h3 class="config-section-title">🟢 辅助模型 <span class="optional-tag">可选</span></h3>
+                <p class="config-section-desc">用于划词翻译和全文翻译。不填默认使用主力模型配置</p>
+                <div class="form-group">
+                    <label>API Base URL <span class="optional-tag">可选</span></label>
+                    <input type="text" id="cfgFastBaseUrl" placeholder="留空则使用主力模型的地址">
+                </div>
+                <div class="form-group">
+                    <label>API Key <span class="optional-tag">可选</span></label>
+                    <input type="password" id="cfgFastApiKey" placeholder="留空则使用主力模型的密钥">
+                </div>
+                <div class="form-group">
+                    <label>模型名称 <span class="optional-tag">可选</span></label>
+                    <div class="input-with-btn">
+                        <input type="text" id="cfgFastModel" placeholder="留空则使用主力模型">
+                        <button class="btn btn-sm btn-detect" onclick="detectModels('fast')" id="btnDetectFast">🔍 检测</button>
+                    </div>
+                    <div class="models-dropdown hidden" id="modelsDropdownFast"></div>
+                </div>
             </div>
-            <div class="form-group">
-                <label>主力模型</label>
-                <input type="text" id="cfgModel" placeholder="step-3.7">
-                <span class="form-hint">用于速览、总结、思维导图、实验汇总</span>
-            </div>
-            <div class="form-group">
-                <label>辅助模型（翻译用）</label>
-                <input type="text" id="cfgModelFast" placeholder="agnes">
-                <span class="form-hint">用于划词翻译和全文翻译，可选轻量模型</span>
-            </div>
+
             <button class="btn btn-primary btn-full" onclick="saveModelConfig()">💾 保存配置</button>
             <p class="settings-status" id="settingsStatus"></p>
         </div>
