@@ -792,3 +792,11 @@ body {
     font-size: 11px;
     color: var(--text-secondary, #94a3b8);
 }
+
+.models-error {
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #dc2626;
+    background: #fef2f2;
+    border-radius: 8px;
+}

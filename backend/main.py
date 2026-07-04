@@ -284,8 +284,12 @@ async def fetch_models(req: ModelFetchRequest):
                 models.append({"id": m.get("id", ""), "owned_by": m.get("owned_by", "")})
             models.sort(key=lambda x: x["id"])
             return {"models": models}
+    except ht.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return {"models": [], "warning": "此 API 不支持 /models 端点，请手动输入模型名称"}
+        raise HTTPException(status_code=400, detail=f"{url}: HTTP {e.response.status_code} - 请检查 Base URL 和 API Key 是否正确")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch models: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"请求 {url} 失败: {str(e)}")
 
 
 # ─── 静态文件（前端） ───

@@ -124,8 +124,8 @@ async function detectModels(type) {
     const btn = document.getElementById(type === 'fast' ? 'btnDetectFast' : 'btnDetectMain');
     const dropdown = document.getElementById(type === 'fast' ? 'modelsDropdownFast' : 'modelsDropdownMain');
 
-    if (!baseUrl) { alert('请先填写 API Base URL'); return; }
-    if (!apiKey) { alert('请先填写 API Key'); return; }
+    if (!baseUrl) { showDetectError(dropdown, '请先填写 API Base URL'); return; }
+    if (!apiKey) { showDetectError(dropdown, '请先填写 API Key'); return; }
 
     btn.disabled = true;
     btn.textContent = '⏳ 检测中...';
@@ -137,25 +137,39 @@ async function detectModels(type) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ base_url: baseUrl, api_key: apiKey }),
         });
-        if (!resp.ok) throw new Error(await resp.text());
         const data = await resp.json();
-        if (data.models.length === 0) {
-            dropdown.innerHTML = '<div class="models-empty">未找到可用模型</div>';
-        } else {
-            dropdown.innerHTML = data.models.map(function(m) {
-                return '<div class="model-item" onclick="selectModel(\'' + type + '\', \'' + m.id.replace(/'/g, "\\'") + '\')">' +
-                    '<span class="model-id">' + m.id + '</span>' +
-                    '<span class="model-owner">' + (m.owned_by || '') + '</span>' +
-                    '</div>';
-            }).join('');
+        if (!resp.ok) throw new Error(data.detail || '请求失败');
+        
+        // Show warning if API doesn't support /models
+        if (data.warning) {
+            showDetectError(dropdown, data.warning);
+            return;
         }
+        
+        if (data.models.length === 0) {
+            showDetectError(dropdown, '未找到可用模型，请确认 Base URL 正确');
+            return;
+        }
+        
+        dropdown.innerHTML = data.models.map(function(m) {
+            return '<div class="model-item" onclick="selectModel(\'' + type + '\', \'' + m.id.replace(/'/g, "\\'") + '\')">' +
+                '<span class="model-id">' + m.id + '</span>' +
+                '<span class="model-owner">' + (m.owned_by || '') + '</span>' +
+                '</div>';
+        }).join('');
         dropdown.classList.remove('hidden');
     } catch (e) {
-        alert('检测失败：' + e.message);
+        showDetectError(dropdown, e.message);
     } finally {
         btn.disabled = false;
         btn.textContent = '🔍 检测';
     }
+}
+
+function showDetectError(dropdown, msg) {
+    dropdown.innerHTML = '<div class="models-error">⚠ ' + msg + '</div>';
+    dropdown.classList.remove('hidden');
+    setTimeout(function() { dropdown.classList.add('hidden'); }, 5000);
 }
 
 function selectModel(type, modelId) {
