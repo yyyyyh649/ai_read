@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ai_read — AI 论文阅读助手</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- markmap 思维导图 -->
+    <script src="https://cdn.jsdelivr.net/npm/markmap-autoloader@0.18/dist/index.js"></script>
+    <!-- highlight.js 代码高亮 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/core.min.js"></script>
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <header class="header">
+        <div class="header-left">
+            <h1 class="logo">📄 AI Paper Reader</h1>
+            <span class="subtitle">论文阅读助手</span>
+        </div>
+        <div class="header-right">
+            <span id="modelBadge" class="badge">Model: --</span>
+        </div>
+    </header>
+
+    <!-- 主布局 -->
+    <div class="container">
+        <!-- 左侧：PDF 预览区 -->
+        <aside class="panel panel-left" id="leftPanel">
+            <!-- 上传区（初始状态） -->
+            <div class="upload-zone" id="uploadZone">
+                <div class="upload-icon">📁</div>
+                <h3>上传论文 PDF</h3>
+                <p>拖拽文件到此处，或点击选择</p>
+                <input type="file" id="fileInput" accept=".pdf" hidden>
+                <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                    选择文件
+                </button>
+            </div>
+            <!-- PDF 预览（上传后显示） -->
+            <div class="pdf-preview hidden" id="pdfPreview">
+                <div class="pdf-toolbar">
+                    <span id="pdfTitle" class="pdf-title"></span>
+                    <button class="btn btn-sm" onclick="switchTab('upload')" title="重新上传">🔄</button>
+                </div>
+                <iframe id="pdfFrame" class="pdf-frame"></iframe>
+            </div>
+        </aside>
+
+        <!-- 右侧：功能区 -->
+        <main class="panel panel-right" id="rightPanel">
+            <!-- 未上传状态 -->
+            <div class="empty-state" id="emptyState">
+                <div class="empty-icon">📚</div>
+                <h2>AI 论文阅读助手</h2>
+                <p>上传一篇论文 PDF，即可使用以下功能：</p>
+                <div class="feature-list">
+                    <div class="feature-item">⚡ 论文速览</div>
+                    <div class="feature-item">📝 深度总结</div>
+                    <div class="feature-item">🧠 思维导图</div>
+                    <div class="feature-item">🔬 实验汇总</div>
+                    <div class="feature-item">🌐 划词翻译</div>
+                    <div class="feature-item">📖 全文翻译</div>
+                </div>
+            </div>
+
+            <!-- 已上传状态：功能面板 -->
+            <div class="workspace hidden" id="workspace">
+                <!-- 功能标签页 -->
+                <nav class="tabs" id="tabs">
+                    <button class="tab active" data-tab="quick-scan">⚡ 速览</button>
+                    <button class="tab" data-tab="summary">📝 总结</button>
+                    <button class="tab" data-tab="mindmap">🧠 思维导图</button>
+                    <button class="tab" data-tab="experiments">🔬 实验汇总</button>
+                    <button class="tab" data-tab="translate">🌐 全文翻译</button>
+                </nav>
+
+                <!-- 操作按钮区 -->
+                <div class="action-bar">
+                    <button class="btn btn-primary" id="btnRun" onclick="runAnalysis()">
+                        ▶ 开始分析
+                    </button>
+                    <button class="btn btn-outline" id="btnStop" onclick="stopAnalysis()" style="display:none;">
+                        ⏹ 停止
+                    </button>
+                    <span class="status-text" id="statusText"></span>
+                </div>
+
+                <!-- 结果展示区 -->
+                <div class="result-area" id="resultArea">
+                    <div class="result-placeholder" id="resultPlaceholder">
+                        <p>👆 点击上方功能标签，然后点击「开始分析」</p>
+                    </div>
+                    <div class="result-content markdown-body hidden" id="resultContent"></div>
+                    <div class="mindmap-container hidden" id="mindmapContainer">
+                        <svg id="mindmapSvg"></svg>
+                    </div>
+                </div>
+
+                <!-- 划词翻译弹窗 -->
+                <div class="translate-popup hidden" id="translatePopup">
+                    <div class="translate-popup-content">
+                        <div class="translate-popup-header">
+                            <span>翻译</span>
+                            <button class="btn-close" onclick="closeTranslatePopup()">×</button>
+                        </div>
+                        <div class="translate-popup-body" id="translatePopupBody">
+                            <p class="translate-loading">翻译中...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="footer">
+        <span>AI Paper Reader v1.0</span>
+        <span>Powered by OpenAI-compatible API</span>
+    </footer>
+
+    <script src="js/marked.min.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
