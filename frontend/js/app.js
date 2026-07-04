@@ -312,7 +312,7 @@ async function runAnalysis() {
     try {
         const resp = await fetch(
             'api/paper/' + state.fileId + '/' + endpoint + '?stream=true',
-            { signal: state.abortController.signal }
+            { method: 'POST', signal: state.abortController.signal }
         );
         if (!resp.ok) throw new Error(await resp.text());
         let fullText = '';
