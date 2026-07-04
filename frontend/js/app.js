@@ -82,10 +82,13 @@ function loadConfigIntoForm() {
     let cfg = {};
     if (cached) { try { cfg = JSON.parse(cached); } catch (e) {} }
     document.getElementById('cfgBaseUrl').value = cfg.base_url || '';
-    document.getElementById('cfgApiKey').value = cfg.api_key || '';
+    // 打码的 key（含 ***）不回填，避免覆盖真实密钥
+    const ak = cfg.api_key || '';
+    document.getElementById('cfgApiKey').value = ak.includes('***') ? '' : ak;
     document.getElementById('cfgModel').value = cfg.model || '';
     document.getElementById('cfgFastBaseUrl').value = cfg.fast_base_url || '';
-    document.getElementById('cfgFastApiKey').value = cfg.fast_api_key || '';
+    const fak = cfg.fast_api_key || '';
+    document.getElementById('cfgFastApiKey').value = fak.includes('***') ? '' : fak;
     document.getElementById('cfgFastModel').value = cfg.fast_model || '';
 }
 
@@ -99,10 +102,14 @@ async function saveModelConfig() {
     const statusEl = document.getElementById('settingsStatus');
 
     try {
+        // 跳过打码 key（含 ***），保留服务器已有值
+        const body = { base_url, model, fast_base_url, fast_model };
+        if (!api_key.includes('***')) body.api_key = api_key;
+        if (!fast_api_key.includes('***')) body.fast_api_key = fast_api_key;
         const resp = await fetch('api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base_url, api_key, model, fast_base_url, fast_api_key, fast_model }),
+            body: JSON.stringify(body),
         });
         if (!resp.ok) throw new Error(await resp.text());
         const cfg = await resp.json();

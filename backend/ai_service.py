@@ -28,8 +28,8 @@ class AIService:
         }
         # 辅助模型配置（独立，不填则回退到主力）
         self._fast = {
-            "base_url": "",
-            "api_key": "",
+            "base_url": os.getenv("AI_API_BASE_URL_FAST", "").rstrip("/"),
+            "api_key": os.getenv("AI_API_KEY_FAST", ""),
             "model": os.getenv("AI_MODEL_NAME_FAST", ""),
         }
 
