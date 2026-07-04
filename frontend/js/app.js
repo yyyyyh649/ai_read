@@ -67,7 +67,7 @@ function closeModelSettings() {
 
 async function loadModelConfig() {
     try {
-        const resp = await fetch('/api/config');
+        const resp = await fetch('api/config');
         if (!resp.ok) return;
         const cfg = await resp.json();
         updateModelBadge(cfg.model || '--');
@@ -99,7 +99,7 @@ async function saveModelConfig() {
     const statusEl = document.getElementById('settingsStatus');
 
     try {
-        const resp = await fetch('/api/config', {
+        const resp = await fetch('api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ base_url, api_key, model, fast_base_url, fast_api_key, fast_model }),
@@ -132,7 +132,7 @@ async function detectModels(type) {
     dropdown.classList.add('hidden');
 
     try {
-        const resp = await fetch('/api/models', {
+        const resp = await fetch('api/models', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ base_url: baseUrl, api_key: apiKey }),
@@ -232,14 +232,14 @@ async function uploadFile(file) {
     const formData = new FormData();
     formData.append('file', file);
     try {
-        const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+        const resp = await fetch('api/upload', { method: 'POST', body: formData });
         if (!resp.ok) throw new Error(await resp.text());
         const data = await resp.json();
         state.fileId = data.file_id;
         state.paperMeta = data.meta;
         dom.uploadZone.classList.add('hidden');
         dom.pdfPreview.classList.remove('hidden');
-        dom.pdfFrame.src = '/api/paper/' + state.fileId + '/pdf';
+        dom.pdfFrame.src = 'api/paper/' + state.fileId + '/pdf';
         dom.pdfTitle.textContent = state.paperMeta.title || file.name;
         dom.emptyState.classList.add('hidden');
         dom.workspace.classList.remove('hidden');
@@ -311,7 +311,7 @@ async function runAnalysis() {
     }
     try {
         const resp = await fetch(
-            '/api/paper/' + state.fileId + '/' + endpoint + '?stream=true',
+            'api/paper/' + state.fileId + '/' + endpoint + '?stream=true',
             { signal: state.abortController.signal }
         );
         if (!resp.ok) throw new Error(await resp.text());
@@ -421,7 +421,7 @@ function setupTextSelection() {
         popup.style.left = Math.max(10, Math.min(rect.left, window.innerWidth - 500)) + 'px';
         popup.style.maxWidth = '480px';
         try {
-            const resp = await fetch('/api/paper/' + state.fileId + '/translate-snippet?text=' + encodeURIComponent(text), { method: 'POST' });
+            const resp = await fetch('api/paper/' + state.fileId + '/translate-snippet?text=' + encodeURIComponent(text), { method: 'POST' });
             if (!resp.ok) throw new Error(await resp.text());
             const data = await resp.json();
             dom.translatePopupBody.innerHTML = '<div class="translate-source">' + escapeHtml(text) + '</div><div class="translate-target">' + escapeHtml(data.result) + '</div>';
