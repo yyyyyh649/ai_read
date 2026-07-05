@@ -129,7 +129,20 @@ class AIService:
                         import json
                         try:
                             chunk = json.loads(ds)
-                            content = chunk["choices"][0].get("delta", {}).get("content", "")
+                            content = ""
+                            # 兼容多种流式/非流式返回格式
+                            choice = chunk.get("choices", [{}])[0] if isinstance(chunk.get("choices"), list) else {}
+                            if isinstance(choice, dict):
+                                if "delta" in choice:
+                                    content = choice["delta"].get("content", "") or ""
+                                elif "message" in choice:
+                                    content = choice["message"].get("content", "") or ""
+                                elif "text" in choice:
+                                    content = choice["text"] or ""
+                            if not content and "content" in chunk and isinstance(chunk.get("content"), str):
+                                content = chunk["content"]
+                            if not content and "text" in chunk and isinstance(chunk.get("text"), str):
+                                content = chunk["text"]
                             if content:
                                 yield content
                         except (json.JSONDecodeError, KeyError, IndexError):

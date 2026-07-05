@@ -378,6 +378,9 @@ async function runAnalysis() {
     updateTabIndicators();
     if (state.currentTab === tabName) renderTabView();
 
+    let contentReceived = false;
+    let sseParseErrorCount = 0;
+
     try {
         const resp = await fetch(
             'api/paper/' + state.fileId + '/' + endpoint + '?stream=true',
@@ -392,21 +395,33 @@ async function runAnalysis() {
             const chunk = decoder.decode(value, { stream: true });
             const lines = chunk.split('\n');
             for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const dataStr = line.slice(6);
-                    if (dataStr === '[DONE]') continue;
-                    try {
-                        const data = JSON.parse(dataStr);
-                        if (data.content) {
-                            task.text += data.content;
-                            if (state.currentTab === tabName) updateResult(task.text);
-                        }
-                        if (data.error) task.error = data.error;
-                    } catch (e) {}
+                if (!line.startsWith('data: ')) continue;
+                const dataStr = line.slice(6).trim();
+                if (dataStr === '[DONE]') continue;
+                if (!dataStr) continue;
+                try {
+                    const data = JSON.parse(dataStr);
+                    if (data.content) {
+                        contentReceived = true;
+                        task.text += data.content;
+                        if (state.currentTab === tabName) updateResult(task.text);
+                    }
+                    if (data.error) {
+                        task.error = data.error;
+                        contentReceived = true; // error is also a response
+                    }
+                } catch (e) {
+                    sseParseErrorCount++;
+                    if (sseParseErrorCount <= 3) {
+                        console.warn('SSE parse error:', dataStr, e);
+                    }
                 }
             }
         }
         task.done = true;
+        if (!contentReceived && !task.error) {
+            task.error = 'AI 返回了空内容，请检查模型配置（Base URL / API Key / 模型名称）是否正确';
+        }
     } catch (err) {
         task.error = err.name === 'AbortError' ? '已停止' : err.message;
     } finally {
@@ -452,24 +467,43 @@ function resetResult() {
 
 // ─── Mindmap ───
 function renderMindmap(markdownText) {
-    markdownText = markdownText.replace(/▌/g, '');
+    markdownText = markdownText.replace(/▌/g, '').trim();
+    if (!markdownText) {
+        resetResult();
+        return;
+    }
+
+    // 先尝试用 markmap 生成真正的思维导图/流程图
+    dom.mindmapContainer.classList.remove('hidden');
+    dom.mindmapSvg.innerHTML = '';
+    let mindmapOk = false;
+
     try {
-        const { Markmap } = window.markmap || {};
-        if (Markmap) {
-            const { transformer } = window.markmap;
-            const transformer2 = new transformer.Transformer();
-            const { root } = transformer2.transform(markdownText);
-            dom.mindmapSvg.innerHTML = '';
-            Markmap.create(dom.mindmapSvg, null, root);
-        } else {
-            dom.mindmapContainer.innerHTML = '<div class="markmap" style="width:100%;height:600px;">\n' + markdownText + '\n</div>';
-            if (window.markmap) window.markmap.autoLoader.renderAll();
+        const mm = window.markmap;
+        if (mm && mm.Markmap && mm.transformer) {
+            const tf = new mm.transformer.Transformer();
+            const { root } = tf.transform(markdownText);
+            mm.Markmap.create(dom.mindmapSvg, {
+                autoFit: true,
+                fitRatio: 0.8,
+                duration: 0,
+                color: (_, i) => ['#4f6ef7', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'][i % 5],
+            }, root);
+            mindmapOk = true;
+            dom.resultContent.classList.add('hidden');
         }
-        dom.resultContent.classList.remove('hidden');
-        dom.resultContent.innerHTML = '<h3>📋 思维导图大纲</h3><pre><code class="language-markdown">' + escapeHtml(markdownText) + '</code></pre>';
     } catch (e) {
+        console.warn('Mindmap render failed:', e);
+    }
+
+    // 如果 markmap 失败或不可用，退而求其次：把 markdown 渲染成 HTML
+    if (!mindmapOk) {
+        dom.mindmapContainer.classList.add('hidden');
         dom.resultContent.classList.remove('hidden');
-        dom.resultContent.innerHTML = '<h3>📋 思维导图大纲</h3><pre><code class="language-markdown">' + escapeHtml(markdownText) + '</code></pre>';
+        dom.resultContent.innerHTML = '<h3>📋 思维导图大纲</h3>' + marked.parse(markdownText);
+        dom.resultContent.querySelectorAll('pre code').forEach(block => {
+            if (window.hljs) window.hljs.highlightElement(block);
+        });
     }
 }
 
