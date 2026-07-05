@@ -1,11 +1,9 @@
-"""
-AI 服务模块 — 封装 OpenAI 兼容 API 调用
-支持运行时动态配置主力模型和辅助模型，各自独立 API 参数
-"""
-
 import os
+import asyncio
+import logging
 import httpx
 from typing import Optional, AsyncGenerator
+
 from prompts import (
     PROMPT_QUICK_SCAN,
     PROMPT_SUMMARY,
@@ -14,6 +12,13 @@ from prompts import (
     PROMPT_TRANSLATE_SNIPPET,
     PROMPT_FULL_TRANSLATION,
 )
+
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 
 class AIService:
@@ -121,6 +126,8 @@ class AIService:
         cfg = self._resolve(use_fast)
         async with httpx.AsyncClient(timeout=300.0) as client:
             async with client.stream("POST", f'{cfg["base_url"]}/chat/completions', headers=self._get_headers(use_fast), json=payload) as resp:
+                # 关键：先检查 HTTP 状态，否则 429/401 等错误会被 SSE 解析跳过，导致前端收到空内容
+                resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if line.startswith("data: "):
                         ds = line[6:]
@@ -145,8 +152,51 @@ class AIService:
                                 content = chunk["text"]
                             if content:
                                 yield content
-                        except (json.JSONDecodeError, KeyError, IndexError):
+                        except (json.JSONDecodeError, KeyError, IndexError) as e:
+                            logger.debug("Failed to parse SSE chunk: %s, error: %s", ds, e)
                             continue
+
+    async def _stream_with_retry(self, prompt, max_tokens=4096, use_fast=False, retries=3, base_delay=1.0):
+        """带重试的流式调用。免费模型常因限速/容量返回空内容，重试可显著提高成功率。"""
+        last_exc = None
+        for attempt in range(1, retries + 1):
+            try:
+                tokens_yielded = 0
+                async for token in self.chat_stream(prompt, max_tokens=max_tokens, use_fast=use_fast):
+                    yield token
+                    tokens_yielded += 1
+                if tokens_yielded == 0:
+                    raise ValueError("AI 返回了空流（可能是免费模型限速或暂时不可用）")
+                return
+            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException, ValueError) as e:
+                last_exc = e
+                status_code = getattr(getattr(e, "response", None), "status_code", None)
+                is_rate_limit = status_code == 429 or "rate" in str(e).lower() or "limit" in str(e).lower()
+                if attempt == retries:
+                    logger.error("Stream failed after %d attempts: %s", retries, e)
+                    raise last_exc
+                delay = base_delay * (2 ** (attempt - 1)) if is_rate_limit else base_delay * 0.5
+                logger.warning("Stream attempt %d/%d failed (status=%s, err=%s), retrying in %.1fs...",
+                               attempt, retries, status_code, e, delay)
+                await asyncio.sleep(delay)
+
+    async def _chat_with_retry(self, prompt, max_tokens=4096, use_fast=False, retries=3, base_delay=1.0):
+        """带重试的非流式调用"""
+        last_exc = None
+        for attempt in range(1, retries + 1):
+            try:
+                return await self.chat(prompt, max_tokens=max_tokens, use_fast=use_fast)
+            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as e:
+                last_exc = e
+                status_code = getattr(getattr(e, "response", None), "status_code", None)
+                is_rate_limit = status_code == 429
+                if attempt == retries:
+                    logger.error("Chat failed after %d attempts: %s", retries, e)
+                    raise last_exc
+                delay = base_delay * (2 ** (attempt - 1)) if is_rate_limit else base_delay * 0.5
+                logger.warning("Chat attempt %d/%d failed (status=%s, err=%s), retrying in %.1fs...",
+                               attempt, retries, status_code, e, delay)
+                await asyncio.sleep(delay)
 
     # ─── 各功能方法 ───
     async def quick_scan(self, paper_text, stream=False):
@@ -167,7 +217,7 @@ class AIService:
 
     async def translate_snippet(self, text):
         prompt = PROMPT_TRANSLATE_SNIPPET.format(text=text)
-        return await self.chat(prompt, temperature=0.1, max_tokens=2048, use_fast=True)
+        return await self._chat_with_retry(prompt, temperature=0.1, max_tokens=2048, use_fast=True)
 
     async def translate_full(self, paper_text, stream=False):
         chunk_size = 20000
@@ -178,7 +228,7 @@ class AIService:
         results = []
         for chunk in chunks:
             prompt = PROMPT_FULL_TRANSLATION.format(paper_text=chunk)
-            result = await self._respond(prompt, stream=False, max_tokens=8192, use_fast=True)
+            result = await self._chat_with_retry(prompt, max_tokens=8192, use_fast=True)
             if isinstance(result, str):
                 results.append(result)
         return "\n\n---\n\n".join(results)
@@ -191,13 +241,13 @@ class AIService:
             if idx > 0:
                 yield "\n\n---\n\n"
             prompt = PROMPT_FULL_TRANSLATION.format(paper_text=chunk)
-            async for token in self.chat_stream(prompt, max_tokens=8192, use_fast=True):
+            async for token in self._stream_with_retry(prompt, max_tokens=8192, use_fast=True):
                 yield token
 
     async def _respond(self, prompt, stream=False, max_tokens=4096, use_fast=False):
         if stream:
-            return self.chat_stream(prompt, max_tokens=max_tokens, use_fast=use_fast)
-        return await self.chat(prompt, max_tokens=max_tokens, use_fast=use_fast)
+            return self._stream_with_retry(prompt, max_tokens=max_tokens, use_fast=use_fast)
+        return await self._chat_with_retry(prompt, max_tokens=max_tokens, use_fast=use_fast)
 
 
 ai_service = AIService()

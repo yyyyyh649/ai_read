@@ -14,7 +14,7 @@ const state = {
 
 function getTask(tab) {
     if (!state.tasks[tab]) {
-        state.tasks[tab] = { running: false, controller: null, text: '', done: false, error: null };
+        state.tasks[tab] = { running: false, controller: null, text: '', done: false, error: null, canRetry: false };
     }
     return state.tasks[tab];
 }
@@ -319,7 +319,8 @@ function renderTabView() {
         dom.resultPlaceholder.classList.add('hidden');
         dom.mindmapContainer.classList.add('hidden');
         dom.resultContent.classList.remove('hidden');
-        dom.resultContent.innerHTML = '<p style="color:var(--red)">错误：' + escapeHtml(task.error) + '</p>';
+        let retryBtn = task.canRetry ? ' <button class="btn-primary" style="margin-left:8px;padding:4px 10px;font-size:13px" onclick="retryAnalysis()">重试</button>' : '';
+        dom.resultContent.innerHTML = '<p style="color:var(--red)">错误：' + escapeHtml(task.error) + retryBtn + '</p>';
     } else if (task.running) {
         dom.resultPlaceholder.classList.remove('hidden');
         dom.resultContent.classList.add('hidden');
@@ -420,7 +421,8 @@ async function runAnalysis() {
         }
         task.done = true;
         if (!contentReceived && !task.error) {
-            task.error = 'AI 返回了空内容，请检查模型配置（Base URL / API Key / 模型名称）是否正确';
+            task.error = 'AI 未返回任何内容（免费模型常因限速或容量不足返回空响应，重试通常可解决）';
+            task.canRetry = true;
         }
     } catch (err) {
         task.error = err.name === 'AbortError' ? '已停止' : err.message;
@@ -435,6 +437,17 @@ async function runAnalysis() {
 function stopAnalysis() {
     const task = getTask(state.currentTab);
     if (task.controller) task.controller.abort();
+}
+
+function retryAnalysis() {
+    const task = getTask(state.currentTab);
+    if (task.running) return;
+    task.error = null;
+    task.done = false;
+    task.canRetry = false;
+    task.text = '';
+    renderTabView();
+    runAnalysis();
 }
 
 // 流式过程中只更新当前可见 tab 的 DOM；后台其他 tab 的内容只写进 task.text，不动 DOM
