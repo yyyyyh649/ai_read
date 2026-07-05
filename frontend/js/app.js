@@ -11,6 +11,7 @@ const state = {
     isStreaming: false,
     abortController: null,
     paperMeta: null,
+    results: {},   // 按 tab 缓存分析结果
 };
 
 // ─── DOM Elements ───
@@ -82,13 +83,10 @@ function loadConfigIntoForm() {
     let cfg = {};
     if (cached) { try { cfg = JSON.parse(cached); } catch (e) {} }
     document.getElementById('cfgBaseUrl').value = cfg.base_url || '';
-    // 打码的 key（含 ***）不回填，避免覆盖真实密钥
-    const ak = cfg.api_key || '';
-    document.getElementById('cfgApiKey').value = ak.includes('***') ? '' : ak;
+    document.getElementById('cfgApiKey').value = cfg.api_key || '';
     document.getElementById('cfgModel').value = cfg.model || '';
     document.getElementById('cfgFastBaseUrl').value = cfg.fast_base_url || '';
-    const fak = cfg.fast_api_key || '';
-    document.getElementById('cfgFastApiKey').value = fak.includes('***') ? '' : fak;
+    document.getElementById('cfgFastApiKey').value = cfg.fast_api_key || '';
     document.getElementById('cfgFastModel').value = cfg.fast_model || '';
 }
 
@@ -102,14 +100,10 @@ async function saveModelConfig() {
     const statusEl = document.getElementById('settingsStatus');
 
     try {
-        // 跳过打码 key（含 ***），保留服务器已有值
-        const body = { base_url, model, fast_base_url, fast_model };
-        if (!api_key.includes('***')) body.api_key = api_key;
-        if (!fast_api_key.includes('***')) body.fast_api_key = fast_api_key;
         const resp = await fetch('api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+            body: JSON.stringify({ base_url, api_key, model, fast_base_url, fast_api_key, fast_model }),
         });
         if (!resp.ok) throw new Error(await resp.text());
         const cfg = await resp.json();
@@ -252,6 +246,7 @@ async function uploadFile(file) {
         dom.workspace.classList.remove('hidden');
         dom.btnRun.disabled = false;
         dom.statusText.textContent = '已加载：' + data.meta.page_count + ' 页，' + (data.text_length / 1000).toFixed(1) + 'K 字符';
+        state.results = {};   // 新论文，清空旧缓存
         resetResult();
     } catch (err) {
         alert('上传失败：' + err.message);
@@ -273,7 +268,20 @@ function setupTabs() {
             'mindmap': '▶ 生成思维导图', 'experiments': '▶ 汇总实验', 'translate': '▶ 全文翻译',
         };
         dom.btnRun.textContent = labels[state.currentTab] || '▶ 开始分析';
-        resetResult();
+        // 有缓存直接恢复，无缓存才重置
+        const cached = state.results[state.currentTab];
+        if (cached) {
+            dom.resultPlaceholder.classList.add('hidden');
+            if (state.currentTab === 'mindmap') {
+                renderMindmap(cached);
+            } else {
+                dom.mindmapContainer.classList.add('hidden');
+                dom.resultContent.classList.remove('hidden');
+                dom.resultContent.innerHTML = marked.parse(cached);
+            }
+        } else {
+            resetResult();
+        }
     });
 }
 
@@ -342,6 +350,7 @@ async function runAnalysis() {
             }
         }
         dom.statusText.textContent = '✓ 分析完成';
+        state.results[state.currentTab] = fullText;   // 缓存结果，切 tab 后可恢复
     } catch (err) {
         if (err.name === 'AbortError') {
             dom.statusText.textContent = '已停止';

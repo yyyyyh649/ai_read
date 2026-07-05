@@ -166,7 +166,7 @@ async def quick_scan(file_id: str, stream: bool = Query(default=True)):
 
     if stream:
         async def generate():
-            async for token in ai_service.quick_scan(text, stream=True):
+            async for token in await ai_service.quick_scan(text, stream=True):
                 yield f"data: {json.dumps({'content': token})}\n\n"
             yield "data: [DONE]\n\n"
         return StreamingResponse(generate(), media_type="text/event-stream")
@@ -185,7 +185,7 @@ async def summary(file_id: str, stream: bool = Query(default=True)):
 
     if stream:
         async def generate():
-            async for token in ai_service.summary(text, stream=True):
+            async for token in await ai_service.summary(text, stream=True):
                 yield f"data: {json.dumps({'content': token})}\n\n"
             yield "data: [DONE]\n\n"
         return StreamingResponse(generate(), media_type="text/event-stream")
@@ -204,7 +204,7 @@ async def mindmap(file_id: str, stream: bool = Query(default=False)):
 
     if stream:
         async def generate():
-            async for token in ai_service.mindmap(text, stream=True):
+            async for token in await ai_service.mindmap(text, stream=True):
                 yield f"data: {json.dumps({'content': token})}\n\n"
             yield "data: [DONE]\n\n"
         return StreamingResponse(generate(), media_type="text/event-stream")
@@ -223,7 +223,7 @@ async def experiments(file_id: str, stream: bool = Query(default=True)):
 
     if stream:
         async def generate():
-            async for token in ai_service.experiments(text, stream=True):
+            async for token in await ai_service.experiments(text, stream=True):
                 yield f"data: {json.dumps({'content': token})}\n\n"
             yield "data: [DONE]\n\n"
         return StreamingResponse(generate(), media_type="text/event-stream")
