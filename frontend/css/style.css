@@ -43,7 +43,7 @@ body {
     background: var(--bg-primary);
     color: var(--text-primary);
     line-height: 1.6;
-    min-height: 100vh;
+    height: 100vh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -93,12 +93,14 @@ body {
 .container {
     display: flex;
     flex: 1;
+    min-height: 0;
     overflow: hidden;
     gap: 0;
 }
 
 .panel {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -281,6 +283,7 @@ body {
 /* ─── Workspace ─── */
 .workspace {
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;

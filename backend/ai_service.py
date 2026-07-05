@@ -170,6 +170,17 @@ class AIService:
                 results.append(result)
         return "\n\n---\n\n".join(results)
 
+    async def translate_full_stream(self, paper_text):
+        """逐块真流式翻译：每块的 token 一边生成一边吐出，不等全部块翻完再返回"""
+        chunk_size = 20000
+        chunks = [paper_text[i:i+chunk_size] for i in range(0, len(paper_text), chunk_size)]
+        for idx, chunk in enumerate(chunks):
+            if idx > 0:
+                yield "\n\n---\n\n"
+            prompt = PROMPT_FULL_TRANSLATION.format(paper_text=chunk)
+            async for token in self.chat_stream(prompt, max_tokens=8192, use_fast=True):
+                yield token
+
     async def _respond(self, prompt, stream=False, max_tokens=4096, use_fast=False):
         if stream:
             return self.chat_stream(prompt, max_tokens=max_tokens, use_fast=use_fast)

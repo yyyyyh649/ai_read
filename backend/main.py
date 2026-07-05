@@ -253,12 +253,8 @@ async def translate_full(file_id: str, stream: bool = Query(default=True)):
     if stream:
         async def generate():
             try:
-                result = await ai_service.translate_full(text, stream=False)
-                if isinstance(result, str):
-                    for char in result:
-                        yield f"data: {json.dumps({'content': char})}\n\n"
-                else:
-                    yield f"data: {json.dumps({'error': 'Translation returned no result'})}\n\n"
+                async for token in ai_service.translate_full_stream(text):
+                    yield f"data: {json.dumps({'content': token})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': 'Translation failed: ' + str(e)})}\n\n"
             yield "data: [DONE]\n\n"

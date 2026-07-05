@@ -8,11 +8,16 @@
 const state = {
     fileId: null,
     currentTab: 'quick-scan',
-    isStreaming: false,
-    abortController: null,
     paperMeta: null,
-    results: {},   // 按 tab 缓存分析结果
+    tasks: {},   // 每个 tab 独立的任务状态：{ running, controller, text, done, error }
 };
+
+function getTask(tab) {
+    if (!state.tasks[tab]) {
+        state.tasks[tab] = { running: false, controller: null, text: '', done: false, error: null };
+    }
+    return state.tasks[tab];
+}
 
 // ─── DOM Elements ───
 const $ = (sel) => document.querySelector(sel);
@@ -83,10 +88,13 @@ function loadConfigIntoForm() {
     let cfg = {};
     if (cached) { try { cfg = JSON.parse(cached); } catch (e) {} }
     document.getElementById('cfgBaseUrl').value = cfg.base_url || '';
-    document.getElementById('cfgApiKey').value = cfg.api_key || '';
+    // 打码的 key（含 ***）不回填，避免覆盖真实密钥
+    const ak = cfg.api_key || '';
+    document.getElementById('cfgApiKey').value = ak.includes('***') ? '' : ak;
     document.getElementById('cfgModel').value = cfg.model || '';
     document.getElementById('cfgFastBaseUrl').value = cfg.fast_base_url || '';
-    document.getElementById('cfgFastApiKey').value = cfg.fast_api_key || '';
+    const fak = cfg.fast_api_key || '';
+    document.getElementById('cfgFastApiKey').value = fak.includes('***') ? '' : fak;
     document.getElementById('cfgFastModel').value = cfg.fast_model || '';
 }
 
@@ -100,10 +108,14 @@ async function saveModelConfig() {
     const statusEl = document.getElementById('settingsStatus');
 
     try {
+        // 跳过打码 key（含 ***），保留服务器已有值
+        const body = { base_url, model, fast_base_url, fast_model };
+        if (!api_key.includes('***')) body.api_key = api_key;
+        if (!fast_api_key.includes('***')) body.fast_api_key = fast_api_key;
         const resp = await fetch('api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base_url, api_key, model, fast_base_url, fast_api_key, fast_model }),
+            body: JSON.stringify(body),
         });
         if (!resp.ok) throw new Error(await resp.text());
         const cfg = await resp.json();
@@ -228,6 +240,8 @@ function setupUpload() {
 
 async function uploadFile(file) {
     if (!file.name.toLowerCase().endsWith('.pdf')) { alert('请上传 PDF 文件！'); return; }
+    // 换新论文前，中止上一篇论文所有还在跑的后台任务
+    Object.values(state.tasks).forEach(t => { if (t.controller) t.controller.abort(); });
     dom.statusText.textContent = '正在上传并解析...';
     dom.btnRun.disabled = true;
     const formData = new FormData();
@@ -238,6 +252,7 @@ async function uploadFile(file) {
         const data = await resp.json();
         state.fileId = data.file_id;
         state.paperMeta = data.meta;
+        state.tasks = {};   // 新论文，清空所有旧任务/结果
         dom.uploadZone.classList.add('hidden');
         dom.pdfPreview.classList.remove('hidden');
         dom.pdfFrame.src = 'api/paper/' + state.fileId + '/pdf';
@@ -246,8 +261,7 @@ async function uploadFile(file) {
         dom.workspace.classList.remove('hidden');
         dom.btnRun.disabled = false;
         dom.statusText.textContent = '已加载：' + data.meta.page_count + ' 页，' + (data.text_length / 1000).toFixed(1) + 'K 字符';
-        state.results = {};   // 新论文，清空旧缓存
-        resetResult();
+        renderTabView();
     } catch (err) {
         alert('上传失败：' + err.message);
         dom.btnRun.disabled = false;
@@ -263,26 +277,50 @@ function setupTabs() {
         $$('.tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         state.currentTab = tab.dataset.tab;
-        const labels = {
-            'quick-scan': '▶ 开始速览', 'summary': '▶ 生成总结',
-            'mindmap': '▶ 生成思维导图', 'experiments': '▶ 汇总实验', 'translate': '▶ 全文翻译',
-        };
-        dom.btnRun.textContent = labels[state.currentTab] || '▶ 开始分析';
-        // 有缓存直接恢复，无缓存才重置
-        const cached = state.results[state.currentTab];
-        if (cached) {
-            dom.resultPlaceholder.classList.add('hidden');
-            if (state.currentTab === 'mindmap') {
-                renderMindmap(cached);
-            } else {
-                dom.mindmapContainer.classList.add('hidden');
-                dom.resultContent.classList.remove('hidden');
-                dom.resultContent.innerHTML = marked.parse(cached);
-            }
-        } else {
-            resetResult();
-        }
+        renderTabView();
     });
+}
+
+const TAB_LABELS = {
+    'quick-scan': '▶ 开始速览', 'summary': '▶ 生成总结',
+    'mindmap': '▶ 生成思维导图', 'experiments': '▶ 汇总实验', 'translate': '▶ 全文翻译',
+};
+
+// 根据当前 tab 自己的任务状态（运行中 / 已完成 / 空）刷新按钮和结果区
+function renderTabView() {
+    const task = getTask(state.currentTab);
+
+    if (task.running) {
+        dom.btnRun.style.display = 'none';
+        dom.btnStop.style.display = 'inline-flex';
+        dom.statusText.innerHTML = '<span class="spinner"></span> AI 分析中...';
+    } else {
+        dom.btnRun.style.display = 'inline-flex';
+        dom.btnStop.style.display = 'none';
+        dom.btnRun.textContent = TAB_LABELS[state.currentTab] || '▶ 开始分析';
+        dom.statusText.textContent = task.done ? '✓ 分析完成' : (task.error ? ('⚠ ' + task.error) : '');
+    }
+
+    if (task.text) {
+        dom.resultPlaceholder.classList.add('hidden');
+        if (state.currentTab === 'mindmap') {
+            renderMindmap(task.text);
+        } else {
+            dom.mindmapContainer.classList.add('hidden');
+            dom.resultContent.classList.remove('hidden');
+            dom.resultContent.innerHTML = marked.parse(task.text) + (task.running ? '<span class="stream-cursor"></span>' : '');
+            dom.resultContent.querySelectorAll('pre code').forEach(block => {
+                if (window.hljs) window.hljs.highlightElement(block);
+            });
+        }
+    } else if (task.error && !task.running) {
+        dom.resultPlaceholder.classList.add('hidden');
+        dom.mindmapContainer.classList.add('hidden');
+        dom.resultContent.classList.remove('hidden');
+        dom.resultContent.innerHTML = '<p style="color:var(--red)">错误：' + escapeHtml(task.error) + '</p>';
+    } else {
+        resetResult();
+    }
 }
 
 function switchTab(tabName) {
@@ -299,38 +337,33 @@ function switchTab(tabName) {
     if (tab) tab.click();
 }
 
-// ─── Analysis ───
+// ─── Analysis（每个 tab 独立跑，互不阻塞） ───
+const ENDPOINTS = {
+    'quick-scan': 'quick-scan', 'summary': 'summary', 'mindmap': 'mindmap',
+    'experiments': 'experiments', 'translate': 'translate-full',
+};
+
 async function runAnalysis() {
     if (!state.fileId) { alert('请先上传论文 PDF'); return; }
-    if (state.isStreaming) return;
-    const endpoints = {
-        'quick-scan': 'quick-scan', 'summary': 'summary', 'mindmap': 'mindmap',
-        'experiments': 'experiments', 'translate': 'translate-full',
-    };
-    const endpoint = endpoints[state.currentTab];
+    const tabName = state.currentTab;   // 锁定发起时的 tab，之后切走也不影响这个任务
+    const task = getTask(tabName);
+    if (task.running) return;
+    const endpoint = ENDPOINTS[tabName];
     if (!endpoint) return;
-    state.isStreaming = true;
-    state.abortController = new AbortController();
-    dom.btnRun.style.display = 'none';
-    dom.btnStop.style.display = 'inline-flex';
-    dom.statusText.innerHTML = '<span class="spinner"></span> AI 分析中...';
-    dom.resultPlaceholder.classList.add('hidden');
-    dom.mindmapContainer.classList.add('hidden');
-    if (state.currentTab === 'mindmap') {
-        dom.resultContent.classList.add('hidden');
-        dom.mindmapContainer.classList.remove('hidden');
-    } else {
-        dom.mindmapContainer.classList.add('hidden');
-        dom.resultContent.classList.remove('hidden');
-        dom.resultContent.innerHTML = '<span class="stream-cursor"></span>';
-    }
+
+    task.running = true;
+    task.text = '';
+    task.done = false;
+    task.error = null;
+    task.controller = new AbortController();
+    if (state.currentTab === tabName) renderTabView();
+
     try {
         const resp = await fetch(
             'api/paper/' + state.fileId + '/' + endpoint + '?stream=true',
-            { method: 'POST', signal: state.abortController.signal }
+            { method: 'POST', signal: task.controller.signal }
         );
         if (!resp.ok) throw new Error(await resp.text());
-        let fullText = '';
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         while (true) {
@@ -344,30 +377,31 @@ async function runAnalysis() {
                     if (dataStr === '[DONE]') continue;
                     try {
                         const data = JSON.parse(dataStr);
-                        if (data.content) { fullText += data.content; updateResult(fullText); }
+                        if (data.content) {
+                            task.text += data.content;
+                            if (state.currentTab === tabName) updateResult(task.text);
+                        }
+                        if (data.error) task.error = data.error;
                     } catch (e) {}
                 }
             }
         }
-        dom.statusText.textContent = '✓ 分析完成';
-        state.results[state.currentTab] = fullText;   // 缓存结果，切 tab 后可恢复
+        task.done = true;
     } catch (err) {
-        if (err.name === 'AbortError') {
-            dom.statusText.textContent = '已停止';
-        } else {
-            dom.statusText.textContent = '⚠ ' + err.message;
-            dom.resultContent.innerHTML = '<p style="color:var(--red)">错误：' + err.message + '</p>';
-        }
+        task.error = err.name === 'AbortError' ? '已停止' : err.message;
     } finally {
-        state.isStreaming = false;
-        state.abortController = null;
-        dom.btnRun.style.display = 'inline-flex';
-        dom.btnStop.style.display = 'none';
+        task.running = false;
+        task.controller = null;
+        if (state.currentTab === tabName) renderTabView();
     }
 }
 
-function stopAnalysis() { if (state.abortController) state.abortController.abort(); }
+function stopAnalysis() {
+    const task = getTask(state.currentTab);
+    if (task.controller) task.controller.abort();
+}
 
+// 流式过程中只更新当前可见 tab 的 DOM；后台其他 tab 的内容只写进 task.text，不动 DOM
 function updateResult(text) {
     if (state.currentTab === 'mindmap') {
         renderMindmap(text);
