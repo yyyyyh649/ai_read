@@ -42,6 +42,7 @@ const dom = {
     translatePopup: $('#translatePopup'),
     translatePopupBody: $('#translatePopupBody'),
     modelBadge: $('#modelBadge'),
+    recentPapersList: $('#recentPapersList'),
 };
 
 // ─── Initialization ───
@@ -50,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
     setupTextSelection();
     loadModelConfig();
+    loadRecentPapers();
 });
 
 // ─── Model Config Management ───
@@ -72,12 +74,42 @@ function closeModelSettings() {
 }
 
 async function loadModelConfig() {
+    const cached = localStorage.getItem('ai_read_config');
+    let cfg = {};
+    if (cached) { try { cfg = JSON.parse(cached); } catch (e) {} }
+
+    // 如果本地缓存了真实密钥（未打码），先把它们同步到服务器运行态
+    const hasRealMainKey = cfg.api_key && !cfg.api_key.includes('***');
+    const hasRealFastKey = cfg.fast_api_key && !cfg.fast_api_key.includes('***');
+    if (hasRealMainKey || hasRealFastKey) {
+        try {
+            const body = { base_url: cfg.base_url || '', model: cfg.model || '', fast_base_url: cfg.fast_base_url || '', fast_model: cfg.fast_model || '' };
+            if (hasRealMainKey) body.api_key = cfg.api_key;
+            if (hasRealFastKey) body.fast_api_key = cfg.fast_api_key;
+            const resp = await fetch('api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (resp.ok) {
+                const serverCfg = await resp.json();
+                updateModelBadge(serverCfg.model || '--');
+                // 保留本地未打码的真实密钥，不要覆盖
+                return;
+            }
+        } catch (e) {}
+    }
+
+    // 本地没有真实密钥时，从服务器拉取（.env 或运行态）
     try {
         const resp = await fetch('api/config');
         if (!resp.ok) return;
-        const cfg = await resp.json();
-        updateModelBadge(cfg.model || '--');
-        localStorage.setItem('ai_read_config', JSON.stringify(cfg));
+        const serverCfg = await resp.json();
+        updateModelBadge(serverCfg.model || '--');
+        // 仅在本地没有缓存时才写入，避免覆盖用户本地的真实密钥
+        if (!cached) {
+            localStorage.setItem('ai_read_config', JSON.stringify(serverCfg));
+        }
     } catch (e) {
         setTimeout(loadModelConfig, 2000);
     }
@@ -262,10 +294,86 @@ async function uploadFile(file) {
         dom.btnRun.disabled = false;
         dom.statusText.textContent = '已加载：' + data.meta.page_count + ' 页，' + (data.text_length / 1000).toFixed(1) + 'K 字符';
         renderTabView();
+        loadRecentPapers();
     } catch (err) {
         alert('上传失败：' + err.message);
         dom.btnRun.disabled = false;
         dom.statusText.textContent = '';
+    }
+}
+
+// ─── Recent Papers ───
+async function loadRecentPapers() {
+    if (!dom.recentPapersList) return;
+    try {
+        const resp = await fetch('api/papers');
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        renderRecentPapers(data.papers || []);
+    } catch (e) {
+        dom.recentPapersList.innerHTML = '<p class="recent-empty">加载历史文献失败</p>';
+    }
+}
+
+function renderRecentPapers(papers) {
+    if (!dom.recentPapersList) return;
+    if (papers.length === 0) {
+        dom.recentPapersList.innerHTML = '<p class="recent-empty">暂无历史文献</p>';
+        return;
+    }
+    const currentId = state.fileId;
+    dom.recentPapersList.innerHTML = papers.map(p => {
+        const title = p.title || '未命名论文';
+        const activeClass = p.file_id === currentId ? 'active' : '';
+        return '<div class="recent-item ' + activeClass + '" onclick="loadPaperFromHistory(\'' + p.file_id + '\')">' +
+            '<div class="recent-item-title" title="' + escapeHtml(title) + '">' + escapeHtml(title) + '</div>' +
+            '<div class="recent-item-meta">' +
+                '<span>' + (p.page_count || 0) + ' 页</span>' +
+                '<span>·</span>' +
+                '<span>' + ((p.text_length || 0) / 1000).toFixed(1) + 'K 字符</span>' +
+            '</div>' +
+            '</div>';
+    }).join('');
+}
+
+async function loadPaperFromHistory(fileId) {
+    if (!fileId) return;
+    // 中止上一篇论文所有后台任务
+    Object.values(state.tasks).forEach(t => { if (t.controller) t.controller.abort(); });
+    state.fileId = fileId;
+    state.paperMeta = null;
+    state.tasks = {};
+
+    try {
+        // 拉取论文元数据
+        const metaResp = await fetch('api/paper/' + fileId + '/meta');
+        if (!metaResp.ok) throw new Error(await metaResp.text());
+        state.paperMeta = await metaResp.json();
+
+        // 拉取已保存的 AI 结果
+        const resultsResp = await fetch('api/paper/' + fileId + '/results');
+        if (resultsResp.ok) {
+            const data = await resultsResp.json();
+            for (const [tab, text] of Object.entries(data.results || {})) {
+                state.tasks[tab] = { running: false, controller: null, text: text, done: true, error: null, canRetry: false };
+            }
+        }
+
+        // 切换到 PDF 预览工作区
+        dom.uploadZone.classList.add('hidden');
+        dom.pdfPreview.classList.remove('hidden');
+        dom.pdfFrame.src = 'api/paper/' + fileId + '/pdf';
+        dom.pdfTitle.textContent = state.paperMeta.title || '历史文献';
+        dom.emptyState.classList.add('hidden');
+        dom.workspace.classList.remove('hidden');
+        dom.statusText.textContent = '已加载：' + (state.paperMeta.page_count || 0) + ' 页';
+
+        // 高亮当前文献
+        loadRecentPapers();
+
+        renderTabView();
+    } catch (err) {
+        alert('加载历史文献失败：' + err.message);
     }
 }
 

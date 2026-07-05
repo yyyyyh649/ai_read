@@ -38,14 +38,14 @@ class AIService:
             "model": os.getenv("AI_MODEL_NAME_FAST", ""),
         }
 
+    def _has_fast_config(self) -> bool:
+        """辅助模型必须同时配置 base_url、api_key、model 三项才算有效"""
+        return all([self._fast["base_url"], self._fast["api_key"], self._fast["model"]])
+
     def _resolve(self, use_fast: bool = False) -> dict:
-        """解析实际使用的配置，fast 有值用 fast，否则回退 main"""
-        if use_fast:
-            return {
-                "base_url": self._fast["base_url"] or self._main["base_url"],
-                "api_key": self._fast["api_key"] or self._main["api_key"],
-                "model": self._fast["model"] or self._main["model"],
-            }
+        """解析实际使用的配置。要求辅助模型时，若 fast 未完整配置则整体回退到 main"""
+        if use_fast and self._has_fast_config():
+            return dict(self._fast)
         return dict(self._main)
 
     @property
@@ -213,7 +213,8 @@ class AIService:
 
     async def experiments(self, paper_text, stream=False):
         prompt = PROMPT_EXPERIMENTS.format(paper_text=paper_text[:40000])
-        return await self._respond(prompt, stream=stream, max_tokens=4096)
+        # 实验汇总使用主模型，不使用辅助模型
+        return await self._respond(prompt, stream=stream, max_tokens=4096, use_fast=False)
 
     async def translate_snippet(self, text):
         prompt = PROMPT_TRANSLATE_SNIPPET.format(text=text)

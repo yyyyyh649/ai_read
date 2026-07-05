@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ai_read — AI 论文阅读助手</title>
-    <link rel="stylesheet" href="css/style.css?v=2">
+    <link rel="stylesheet" href="css/style.css?v=3">
     <!-- markmap 思维导图 -->
     <script src="https://cdn.jsdelivr.net/npm/markmap-autoloader@0.18/dist/index.js"></script>
     <!-- highlight.js 代码高亮 -->
@@ -42,6 +42,15 @@
                     <button class="btn btn-sm" onclick="switchTab('upload')" title="重新上传">🔄</button>
                 </div>
                 <iframe id="pdfFrame" class="pdf-frame"></iframe>
+            </div>
+            <div class="recent-papers" id="recentPapers">
+                <div class="recent-papers-header">
+                    <h4>📚 最近文献</h4>
+                    <button class="btn btn-sm" onclick="loadRecentPapers()" title="刷新列表">🔄</button>
+                </div>
+                <div class="recent-papers-list" id="recentPapersList">
+                    <p class="recent-empty">暂无历史文献</p>
+                </div>
             </div>
         </aside>
 
