@@ -304,6 +304,8 @@ function renderTabView() {
     if (task.text) {
         dom.resultPlaceholder.classList.add('hidden');
         if (state.currentTab === 'mindmap') {
+            dom.resultContent.classList.add('hidden');
+            dom.mindmapContainer.classList.remove('hidden');
             renderMindmap(task.text);
         } else {
             dom.mindmapContainer.classList.add('hidden');
@@ -318,9 +320,26 @@ function renderTabView() {
         dom.mindmapContainer.classList.add('hidden');
         dom.resultContent.classList.remove('hidden');
         dom.resultContent.innerHTML = '<p style="color:var(--red)">错误：' + escapeHtml(task.error) + '</p>';
+    } else if (task.running) {
+        dom.resultPlaceholder.classList.remove('hidden');
+        dom.resultContent.classList.add('hidden');
+        dom.mindmapContainer.classList.add('hidden');
+        dom.resultPlaceholder.innerHTML = '<p><span class="spinner"></span> AI 分析中...</p>';
     } else {
         resetResult();
     }
+    updateTabIndicators();
+}
+
+function updateTabIndicators() {
+    $$('.tab').forEach(tab => {
+        const task = state.tasks[tab.dataset.tab];
+        if (task && task.running) {
+            tab.classList.add('running');
+        } else {
+            tab.classList.remove('running');
+        }
+    });
 }
 
 function switchTab(tabName) {
@@ -356,6 +375,7 @@ async function runAnalysis() {
     task.done = false;
     task.error = null;
     task.controller = new AbortController();
+    updateTabIndicators();
     if (state.currentTab === tabName) renderTabView();
 
     try {
@@ -392,6 +412,7 @@ async function runAnalysis() {
     } finally {
         task.running = false;
         task.controller = null;
+        updateTabIndicators();
         if (state.currentTab === tabName) renderTabView();
     }
 }
@@ -403,9 +424,14 @@ function stopAnalysis() {
 
 // 流式过程中只更新当前可见 tab 的 DOM；后台其他 tab 的内容只写进 task.text，不动 DOM
 function updateResult(text) {
+    dom.resultPlaceholder.classList.add('hidden');
     if (state.currentTab === 'mindmap') {
+        dom.resultContent.classList.add('hidden');
+        dom.mindmapContainer.classList.remove('hidden');
         renderMindmap(text);
     } else {
+        dom.mindmapContainer.classList.add('hidden');
+        dom.resultContent.classList.remove('hidden');
         const html = marked.parse(text);
         dom.resultContent.innerHTML = html + '<span class="stream-cursor"></span>';
         dom.resultContent.scrollTop = dom.resultContent.scrollHeight;
@@ -421,6 +447,7 @@ function resetResult() {
     dom.mindmapContainer.classList.add('hidden');
     dom.resultContent.innerHTML = '';
     dom.mindmapSvg.innerHTML = '';
+    dom.resultPlaceholder.innerHTML = '<p>👆 点击上方功能标签，然后点击「开始分析」</p>';
 }
 
 // ─── Mindmap ───
