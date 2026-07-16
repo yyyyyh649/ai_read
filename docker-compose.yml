@@ -1,0 +1,21 @@
+services:
+  ai_read:
+    build: .
+    image: ai_read:latest
+    container_name: ai_read
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # 状态持久化：上传的 PDF + SQLite
+      - ai_read_uploads:/app/uploads
+      - ai_read_data:/app/data
+      # 如需在容器里直接读 .env 改动，挂载为只读
+      # - ./.env:/app/.env:ro
+    # SSE 长连接需要保持，无需特殊配置，compose 默认即可
+
+volumes:
+  ai_read_uploads:
+  ai_read_data:

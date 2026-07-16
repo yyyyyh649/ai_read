@@ -1,0 +1,38 @@
+# 版本控制
+.git
+.gitignore
+.github
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 本地运行时数据（用 docker volume 替代）
+data/
+uploads/
+*.db
+
+# 编辑器/IDE
+.vscode/
+.idea/
+*.swp
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 文档
+README.md
+LICENSE
+
+# 实际 .env（敏感）
+.env

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ai_read — AI 论文阅读助手</title>
-    <link rel="stylesheet" href="css/style.css?v=3">
+    <link rel="stylesheet" href="css/style.css?v=4">
     <!-- markmap 思维导图 -->
     <script src="https://cdn.jsdelivr.net/npm/markmap-autoloader@0.18/dist/index.js"></script>
     <!-- highlight.js 代码高亮 -->
@@ -68,6 +68,9 @@
                     <div class="feature-item">🌐 划词翻译</div>
                     <div class="feature-item">📖 全文翻译</div>
                 </div>
+                <div class="empty-actions">
+                    <button class="btn btn-outline" onclick="openSnippetTranslateOnly()">🌐 直接进入划词翻译</button>
+                </div>
             </div>
 
             <div class="workspace hidden" id="workspace">
@@ -76,10 +79,11 @@
                     <button class="tab" data-tab="summary">📝 总结</button>
                     <button class="tab" data-tab="mindmap">🧠 思维导图</button>
                     <button class="tab" data-tab="experiments">🔬 实验汇总</button>
-                    <button class="tab" data-tab="translate">🌐 全文翻译</button>
+                    <button class="tab" data-tab="snippet-translate">🌐 划词翻译</button>
+                    <button class="tab" data-tab="translate">📖 全文翻译</button>
                 </nav>
 
-                <div class="action-bar">
+                <div class="action-bar" id="actionBar">
                     <button class="btn btn-primary" id="btnRun" onclick="runAnalysis()">
                         ▶ 开始分析
                     </button>
@@ -87,6 +91,28 @@
                         ⏹ 停止
                     </button>
                     <span class="status-text" id="statusText"></span>
+                </div>
+
+                <!-- 划词翻译工作台（独立模块，不依赖 PDF 上传） -->
+                <div class="snippet-translate-workspace hidden" id="snippetTranslateWorkspace">
+                    <div class="snippet-input-wrap">
+                        <textarea id="snippetInput" class="snippet-input" placeholder="在此粘贴要翻译的英文文本——一个词、一句话、一段、一篇都可以，划多少翻多少。&#10;支持 Ctrl+Enter 快捷翻译。"></textarea>
+                        <div class="snippet-input-actions">
+                            <button class="btn btn-primary" id="btnSnippetTranslate" onclick="translateSnippetText()">🌐 翻译</button>
+                            <button class="btn btn-sm" onclick="clearSnippetInput()">🗑 清空输入</button>
+                            <button class="btn btn-sm" onclick="clearSnippetHistory()" title="清空所有翻译历史">🧹 清空历史</button>
+                            <span class="snippet-char-count" id="snippetCharCount">0 字符</span>
+                        </div>
+                    </div>
+                    <div class="snippet-history-wrap">
+                        <div class="snippet-history-header">
+                            <h4>📜 翻译历史</h4>
+                            <span class="snippet-history-hint" id="snippetHistoryHint">仅保存在本浏览器</span>
+                        </div>
+                        <div class="snippet-history-list" id="snippetHistoryList">
+                            <p class="recent-empty">暂无翻译历史</p>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="result-area" id="resultArea">
@@ -171,6 +197,23 @@
         </div>
     </div>
 
+    <!-- 鉴权令牌输入弹窗（仅 ADMIN_TOKEN 启用时显示） -->
+    <div class="settings-overlay hidden" id="authOverlay"></div>
+    <div class="settings-panel hidden" id="authPanel">
+        <div class="settings-header">
+            <h2>🔐 需要鉴权</h2>
+        </div>
+        <div class="settings-body">
+            <p class="auth-intro">此服务已启用访问令牌（<code>ADMIN_TOKEN</code>）。请输入令牌以继续，令牌会保存在浏览器本地。</p>
+            <div class="form-group">
+                <label>访问令牌</label>
+                <input type="password" id="authTokenInput" placeholder="粘贴你的 ADMIN_TOKEN" autocomplete="off">
+            </div>
+            <button class="btn btn-primary btn-full" onclick="submitAuthToken()">✓ 解锁</button>
+            <p class="auth-status" id="authStatus"></p>
+        </div>
+    </div>
+
     <!-- 页脚 -->
     <footer class="footer">
         <span>AI Paper Reader v1.0</span>
@@ -178,6 +221,6 @@
     </footer>
 
     <script src="js/marked.min.js"></script>
-    <script src="js/app.js?v=10"></script>
+    <script src="js/app.js?v=11"></script>
 </body>
 </html>

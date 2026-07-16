@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 import logging
 import httpx
@@ -133,7 +134,6 @@ class AIService:
                         ds = line[6:]
                         if ds.strip() == "[DONE]":
                             break
-                        import json
                         try:
                             chunk = json.loads(ds)
                             content = ""
