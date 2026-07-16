@@ -280,6 +280,22 @@ def _safe_error_message(exc: Exception) -> str:
     return "AI 服务暂时不可用，请稍后重试或检查 API 配置"
 
 
+def _check_ai_configured(use_fast: bool = False) -> Optional[str]:
+    """检查 AI 配置是否完整，返回错误提示字符串；返回 None 表示配置 OK"""
+    cfg = ai_service._resolve(use_fast)
+    missing = []
+    if not cfg.get("base_url"):
+        missing.append("API Base URL")
+    if not cfg.get("api_key"):
+        missing.append("API Key")
+    if not cfg.get("model"):
+        missing.append("模型名称")
+    if missing:
+        role = "辅助模型" if use_fast else "主力模型"
+        return f"{role}未配置完整（缺少：{ '、'.join(missing) }），请在右上角 ⚙ 设置中填写后重试"
+    return None
+
+
 # ─── API 路由 ───
 
 @app.get("/api/health")
@@ -401,6 +417,15 @@ async def quick_scan(file_id: str, stream: bool = Query(default=True), _=Depends
     if file_id not in paper_store:
         raise HTTPException(404, "论文未找到")
 
+    cfg_err = _check_ai_configured(use_fast=False)
+    if cfg_err:
+        if stream:
+            async def _cfg_err_stream():
+                yield f"data: {json.dumps({'error': cfg_err})}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(_cfg_err_stream(), media_type="text/event-stream")
+        raise HTTPException(status_code=400, detail=cfg_err)
+
     text = paper_store[file_id]["text"]
 
     if stream:
@@ -432,6 +457,15 @@ async def summary(file_id: str, stream: bool = Query(default=True), _=Depends(re
     """深度总结"""
     if file_id not in paper_store:
         raise HTTPException(404, "论文未找到")
+
+    cfg_err = _check_ai_configured(use_fast=False)
+    if cfg_err:
+        if stream:
+            async def _cfg_err_stream():
+                yield f"data: {json.dumps({'error': cfg_err})}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(_cfg_err_stream(), media_type="text/event-stream")
+        raise HTTPException(status_code=400, detail=cfg_err)
 
     text = paper_store[file_id]["text"]
 
@@ -465,6 +499,15 @@ async def mindmap(file_id: str, stream: bool = Query(default=False), _=Depends(r
     if file_id not in paper_store:
         raise HTTPException(404, "论文未找到")
 
+    cfg_err = _check_ai_configured(use_fast=False)
+    if cfg_err:
+        if stream:
+            async def _cfg_err_stream():
+                yield f"data: {json.dumps({'error': cfg_err})}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(_cfg_err_stream(), media_type="text/event-stream")
+        raise HTTPException(status_code=400, detail=cfg_err)
+
     text = paper_store[file_id]["text"]
 
     if stream:
@@ -496,6 +539,16 @@ async def experiments(file_id: str, stream: bool = Query(default=True), _=Depend
     """实验条件与结果汇总"""
     if file_id not in paper_store:
         raise HTTPException(404, "论文未找到")
+
+    # 配置预检查：在调用 AI 前明确告知配置缺失，而不是泛化的"AI 不可用"
+    cfg_err = _check_ai_configured(use_fast=False)
+    if cfg_err:
+        if stream:
+            async def _cfg_err_stream():
+                yield f"data: {json.dumps({'error': cfg_err})}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(_cfg_err_stream(), media_type="text/event-stream")
+        raise HTTPException(status_code=400, detail=cfg_err)
 
     text = paper_store[file_id]["text"]
 
@@ -529,6 +582,10 @@ async def translate_snippet(file_id: str, body: TranslateRequest, _=Depends(requ
     if file_id not in paper_store:
         raise HTTPException(404, "论文未找到")
 
+    cfg_err = _check_ai_configured(use_fast=True)
+    if cfg_err:
+        raise HTTPException(status_code=400, detail=cfg_err)
+
     try:
         result = await ai_service.translate_snippet(body.text)
     except Exception as e:
@@ -542,6 +599,15 @@ async def translate_full(file_id: str, stream: bool = Query(default=True), _=Dep
     """全文翻译"""
     if file_id not in paper_store:
         raise HTTPException(404, "论文未找到")
+
+    cfg_err = _check_ai_configured(use_fast=True)
+    if cfg_err:
+        if stream:
+            async def _cfg_err_stream():
+                yield f"data: {json.dumps({'error': cfg_err})}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(_cfg_err_stream(), media_type="text/event-stream")
+        raise HTTPException(status_code=400, detail=cfg_err)
 
     text = paper_store[file_id]["text"]
 
@@ -574,6 +640,9 @@ async def translate_full(file_id: str, stream: bool = Query(default=True), _=Dep
 @app.post("/api/translate")
 async def translate_any(body: TranslateRequest, _=Depends(require_auth)):
     """任意文本翻译：粘贴一段、一句、一词都可以，返回原文 + 译文"""
+    cfg_err = _check_ai_configured(use_fast=True)
+    if cfg_err:
+        raise HTTPException(status_code=400, detail=cfg_err)
     try:
         result = await ai_service.translate_snippet(body.text)
     except Exception as e:

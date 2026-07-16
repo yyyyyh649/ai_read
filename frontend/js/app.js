@@ -205,9 +205,10 @@ async function loadModelConfig() {
         return;  // 等待用户输入令牌后再继续
     }
 
-    // 如果本地缓存了真实密钥（未打码），先把它们同步到服务器运行态
-    const hasRealMainKey = cfg.api_key && !cfg.api_key.includes('***');
-    const hasRealFastKey = cfg.fast_api_key && !cfg.fast_api_key.includes('***');
+    // 如果本地缓存了真实密钥（未打码），先把它们同步到服务器运行态。
+    // 注意：只同步非空的、真实的 key，避免把空字符串覆盖到服务器。
+    const hasRealMainKey = cfg.api_key && !cfg.api_key.includes('***') && cfg.api_key.length > 0;
+    const hasRealFastKey = cfg.fast_api_key && !cfg.fast_api_key.includes('***') && cfg.fast_api_key.length > 0;
     if (hasRealMainKey || hasRealFastKey) {
         try {
             const body = { base_url: cfg.base_url || '', model: cfg.model || '', fast_base_url: cfg.fast_base_url || '', fast_model: cfg.fast_model || '' };
@@ -261,10 +262,12 @@ async function saveModelConfig() {
     const statusEl = document.getElementById('settingsStatus');
 
     try {
-        // 跳过打码 key（含 ***），保留服务器已有值
+        // 关键：只在用户实际输入了新 key 时才提交 api_key 字段。
+        // 输入框为空（打码 key 没回填）或仍是打码占位符时，跳过该字段，保留服务器已有值。
+        // 否则会把真实 key 覆盖成空字符串，导致所有 AI 调用 401。
         const body = { base_url, model, fast_base_url, fast_model };
-        if (!api_key.includes('***')) body.api_key = api_key;
-        if (!fast_api_key.includes('***')) body.fast_api_key = fast_api_key;
+        if (api_key && !api_key.includes('***')) body.api_key = api_key;
+        if (fast_api_key && !fast_api_key.includes('***')) body.fast_api_key = fast_api_key;
         const resp = await apiFetch('api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -870,8 +873,15 @@ async function translateSnippetText() {
             return;
         }
         if (!resp.ok) {
-            const err = await resp.text();
-            throw new Error(err || ('HTTP ' + resp.status));
+            // 提取后端返回的具体错误信息（FastAPI 400 会返回 {"detail": "..."}）
+            let errMsg = 'HTTP ' + resp.status;
+            try {
+                const errBody = await resp.json();
+                errMsg = errBody.detail || errBody.message || JSON.stringify(errBody);
+            } catch (e2) {
+                try { errMsg = await resp.text(); } catch (e3) {}
+            }
+            throw new Error(errMsg);
         }
         const data = await resp.json();
         // 把占位替换为最终结果
