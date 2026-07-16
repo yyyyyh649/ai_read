@@ -156,13 +156,13 @@ class AIService:
                             logger.debug("Failed to parse SSE chunk: %s, error: %s", ds, e)
                             continue
 
-    async def _stream_with_retry(self, prompt, max_tokens=4096, use_fast=False, retries=3, base_delay=1.0):
+    async def _stream_with_retry(self, prompt, max_tokens=4096, temperature=0.3, use_fast=False, retries=3, base_delay=1.0):
         """带重试的流式调用。免费模型常因限速/容量返回空内容，重试可显著提高成功率。"""
         last_exc = None
         for attempt in range(1, retries + 1):
             try:
                 tokens_yielded = 0
-                async for token in self.chat_stream(prompt, max_tokens=max_tokens, use_fast=use_fast):
+                async for token in self.chat_stream(prompt, temperature=temperature, max_tokens=max_tokens, use_fast=use_fast):
                     yield token
                     tokens_yielded += 1
                 if tokens_yielded == 0:
@@ -180,12 +180,12 @@ class AIService:
                                attempt, retries, status_code, e, delay)
                 await asyncio.sleep(delay)
 
-    async def _chat_with_retry(self, prompt, max_tokens=4096, use_fast=False, retries=3, base_delay=1.0):
+    async def _chat_with_retry(self, prompt, max_tokens=4096, temperature=0.3, use_fast=False, retries=3, base_delay=1.0):
         """带重试的非流式调用"""
         last_exc = None
         for attempt in range(1, retries + 1):
             try:
-                return await self.chat(prompt, max_tokens=max_tokens, use_fast=use_fast)
+                return await self.chat(prompt, temperature=temperature, max_tokens=max_tokens, use_fast=use_fast)
             except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as e:
                 last_exc = e
                 status_code = getattr(getattr(e, "response", None), "status_code", None)

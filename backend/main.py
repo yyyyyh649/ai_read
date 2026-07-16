@@ -275,9 +275,58 @@ def _save_paper_result_after_stream(file_id: str, tab: str, full_text: str):
 
 
 def _safe_error_message(exc: Exception) -> str:
-    """对外返回的脱敏错误信息（不暴露上游 URL / 状态码细节）"""
-    # 已经是 HTTPException 的情况由 FastAPI 处理
-    return "AI 服务暂时不可用，请稍后重试或检查 API 配置"
+    """对外返回的错误信息：显示错误类别和上游说明，但不暴露我们的 URL / API Key"""
+    import httpx as _httpx
+
+    # HTTP 错误（401/404/429/500 等）：提取上游返回的错误说明
+    if isinstance(exc, _httpx.HTTPStatusError):
+        status = exc.response.status_code
+        upstream_msg = ""
+        try:
+            body = exc.response.json()
+            # OpenAI 兼容格式：{"error": {"message": "..."}}
+            if isinstance(body, dict):
+                err = body.get("error")
+                if isinstance(err, dict):
+                    upstream_msg = err.get("message", "")
+                elif isinstance(err, str):
+                    upstream_msg = err
+                elif "detail" in body:
+                    upstream_msg = str(body["detail"])
+                elif "message" in body:
+                    upstream_msg = str(body["message"])
+        except Exception:
+            try:
+                upstream_msg = exc.response.text[:200]
+            except Exception:
+                pass
+        # 清理掉上游消息里可能包含的 URL（保留 hostname）和 key
+        import re
+        upstream_msg = re.sub(r'https?://[^\s"\'<>]+', '<URL>', upstream_msg)
+        upstream_msg = re.sub(r'(sk-[A-Za-z0-9]{4})[A-Za-z0-9]+', r'\1***', upstream_msg)
+        if status == 401:
+            base = "API Key 无效或已过期（HTTP 401）"
+        elif status == 403:
+            base = "API Key 无权限访问该模型（HTTP 403）"
+        elif status == 404:
+            base = "模型名称不存在或 API Base URL 路径错误（HTTP 404）"
+        elif status == 429:
+            base = "请求过于频繁或额度已用尽（HTTP 429 限速）"
+        elif status >= 500:
+            base = f"AI 服务端异常（HTTP {status}）"
+        else:
+            base = f"AI 服务返回错误（HTTP {status}）"
+        return base + (f"：{upstream_msg}" if upstream_msg else "")
+
+    # 连接错误：DNS 解析失败 / 拒绝连接 / 网络不通
+    if isinstance(exc, _httpx.ConnectError):
+        return f"无法连接到 AI 服务（{type(exc).__name__}）：请检查 API Base URL 是否正确、网络是否可达"
+    # 超时
+    if isinstance(exc, _httpx.TimeoutException):
+        return f"AI 服务响应超时（{type(exc).__name__}）：请稍后重试或换用更快的模型"
+
+    # 其他（包括我们自己抛的 ValueError "AI 返回了空流"）
+    return f"AI 调用失败：{type(exc).__name__}: {str(exc)[:200]}"
 
 
 def _check_ai_configured(use_fast: bool = False) -> Optional[str]:
