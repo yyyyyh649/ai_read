@@ -87,16 +87,16 @@ flowchart LR
         Fast["辅助模型<br/>agnes / gpt-4o-mini"]
     end
 
-    UI -->|上传 PDF / 调用 AI| Router
-    PDF -->|GET /api/paper/{id}/pdf| Router
+    UI -->|"上传 PDF / 调用 AI"| Router
+    PDF -->|"GET /api/paper/{id}/pdf"| Router
     Router --> Parser
     Parser --> FS
     Router <--> Store
     Store <--> DB
-    Router -->|SSE 流式| AIService
-    AIService -->|chat/completions| Main
-    AIService -->|chat/completions| Fast
-    AIService -.->|结果落库| DB
+    Router -->|"SSE 流式"| AIService
+    AIService -->|"chat/completions"| Main
+    AIService -->|"chat/completions"| Fast
+    AIService -.->|"结果落库"| DB
 ```
 
 数据流要点：
